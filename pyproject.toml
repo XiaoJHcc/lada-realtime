@@ -72,8 +72,12 @@ dataset-creation = ["lap>=0.5.12", "timm", "einops", "pillow", "scipy", "onnx", 
 docker = ["opencv-python-headless==4.12.0.88"] # Version 4.13.0.90 is broken as it requires GUI libs, see https://github.com/opencv/opencv-python/issues/1183
 
 [[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[[tool.uv.index]]
 name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+url = "https://mirrors.nju.edu.cn/pytorch/whl/cu128"
 explicit = true
 
 [[tool.uv.index]]

@@ -1,194 +1,88 @@
 <h1 align="center">
   <img src="assets/io.github.ladaapp.lada.png" alt="Lada Icon" style="display: block; width: 64px; height: 64px;">
   <br>
-  Lada
+  Lada Realtime
 </h1>
 
-*Lada* is a tool designed to recover pixelated adult videos (JAV). It helps restore the visual quality of such content, making it more enjoyable to watch.
+<p align="center">
+  <em>A fork of <a href="https://codeberg.org/ladaapp/lada">lada</a> focused on true real-time mosaic removal during playback.</em>
+</p>
 
-## Features
+> [!WARNING]
+> **开发中 / Work in progress.** 实时预览功能尚未完成。当前仓库主要是上游 lada 的代码 + 实时改造的规划。
+> 如果你只是想用稳定的去码/导出功能，请直接使用 [上游 lada](https://codeberg.org/ladaapp/lada)。
 
-- **Recover Pixelated Videos**: Restore pixelated or mosaic scenes in adult videos.
-- **Watch/Export Videos**: Use either the CLI or GUI to watch or export your restored videos.
+## 这个 fork 想做什么
 
-## Usage
+[lada](https://codeberg.org/ladaapp/lada) 是一个用 AI 去除/恢复打码（马赛克）成人视频（JAV）的工具。它的核心设计是**离线处理**：把整个视频跑一遍模型，**导出**成一个新文件，之后用任意播放器观看。它也带一个 GUI 实时预览，但那只是个预览 —— **没有为实时播放做优化**：当显卡跟不上时，播放器会**暂停并缓冲**，凑齐足够的帧再继续。尤其在拖动进度条（seek）跳到新片段后，模型需要重新累积多帧来降低时间维度上的闪烁，于是总会出现明显卡顿。
 
-### GUI
+本 fork 想把这件事反过来做 —— **做一个真正的实时预览**：
 
-After opening a file, you can either watch the restored video in real time or export it to a new file to watch it later:
+- **永不缓冲，播放进度优先（时钟驱动）**：以播放的墙上时钟为准，绝不为了等 AI 结果而停下来。
+- **显卡跟得上 → 显示去码结果**；**跟不上 → 直接播原片**，待 GPU 追上后再切回去码画面。
+- **自适应降级**：通过缩短时间窗口、降低推理分辨率等手段，动态地让 GPU 持续满足 ~30 帧/秒。
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot_gui_1_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="assets/screenshot_gui_1_light.png">
-  <img alt="Screenshot showing video preview" src="assets/screenshot_gui_1_dark.png" width="36%">
-</picture>
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot_gui_2_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="assets/screenshot_gui_2_light.png">
-  <img alt="Screenshot showing video export" src="assets/screenshot_gui_2_dark.png" width="45%">
-</picture>
+这个方向的可行性来自一个观察：在导出（离线）模式下，一块 RTX 4080 可以跑到约 **90 帧/秒**，远高于常见的 30fps 视频帧率。这说明**吞吐量并不是瓶颈，延迟才是** —— 瓶颈在于时间维度模型必须先看到一整段连续帧（一个 clip）才能输出，而上游用「先缓冲一大段」来掩盖这个延迟。实时改造的核心，就是把「缓冲优先」换成「进度优先 + 降级回退」。
 
-Additional settings can be found in the left sidebar.
+技术细节与改造涉及的具体文件，见 [CLAUDE.md](CLAUDE.md)。
 
-### CLI
+## 当前状态
 
-You can also use the command-line interface (CLI) to restore video(s):
+- [x] 摸清上游架构与实时卡顿的根源（见 [CLAUDE.md](CLAUDE.md)）
+- [ ] 时钟驱动的实时预览窗口
+- [ ] AI 帧 / 原片帧的动态切换（回退路径）
+- [ ] 自适应降级（clip 长度 / 分辨率 / 跳帧）
 
-```shell
+## 从源码构建
+
+本 fork 沿用上游的构建方式（`uv` + 各平台依赖）。详见各平台安装指南：
+
+- [Windows](docs/windows_install.md)
+- [Linux](docs/linux_install.md)
+- [macOS](docs/macOS_install.md)
+
+最简路径（CLI，Windows + Nvidia，详见 Windows 指南）：
+
+```powershell
+winget install --id Gyan.FFmpeg -e --source winget
+winget install --id Git.Git -e --source winget
+winget install --id astral-sh.uv -e --source winget
+
+uv venv
+.\.venv\Scripts\Activate.ps1
+uv sync --extra nvidia            # 按显卡选：nvidia / nvidia-legacy / intel / cpu
+
+# 打补丁 + 下载 model_weights/ 里的模型权重（见 Windows 指南）
+
 lada-cli --input <input video path>
 ```
-<img src="assets/screenshot_cli_1.png" alt="screenshot showing video export" width="60%">
 
-For more information about additional options, use the `--help` argument.
+GUI 还需要 GTK4/GStreamer 系统依赖（`build_gtk/`），随后用 `lada` 启动。实时预览的改造主要发生在 GUI，因此运行 GUI 是验证改动的前提。
 
-## Performance expectations and hardware requirements
-The restoration quality can vary depending on the scene. Some may look quite realistic, while others could display noticeable artifacts, sometimes worse than the original mosaics.
+## 与上游的关系
 
-To run the app effectively, you'll need a GPU and some patience. A graphics card with at least 4-6GB of VRAM should work well for most cases.
+本仓库是 [lada](https://codeberg.org/ladaapp/lada) 的个人 fork。上游主仓托管在 **Codeberg**（GitHub 为其镜像）。原项目的功能介绍、性能预期、Flatpak/Docker/Windows 预编译包等安装方式、训练与数据集制作等内容，请以上游 README 与文档为准。
 
-The app also requires a fair amount of RAM for buffering, which improves performance. For 1080p content, 6-8GB of RAM should suffice, but 4K video will require significantly more.
-
-To watch the restored video in real-time, you'll need a powerful machine. Otherwise, the player may pause and buffer as it computes the next set of restored frames. While viewing the video, no encoding is done, but additional RAM will be used for buffering.
-
-If your GPU isn't fast enough for real-time playback, you can export the video and watch it later in your preferred media player (this is supported in both the GUI and CLI).
-
-Although the app can run on a CPU, performance will be extremely slow, making it impractical for most users.
-
-## Installation
-### Using Flatpak
-The easiest way to install the app (CLI and GUI) on Linux is via Flathub:
-
-<a href='https://flathub.org/apps/details/io.github.ladaapp.lada'><img width='200' alt='Download from Flathub' src='https://flathub.org/api/badge?svg&locale=en'/></a>
-
-> [!NOTE]
-> The Flatpak only works with x86_64 CPUs. Nvidia/CUDA (Turing or newer: RTX 20xx up to including RTX 50xx) and Intel Arc GPUs are supported. Ensure your GPU driver is up-to-date.
-> It can also be used without a GPU but it will be very slow. Make sure to install either the Intel or the Nvidia Add-On from Flathub.
-
-> [!TIP]
-> After installation you should find Lada in your application launcher to start the GUI. You can also run it via `flatpak run io.github.ladaapp.lada`.
-
-> [!TIP]
-> When using the CLI via Flatpak we need to make the file/directory available by giving it permission to the file system so it can access the input/output files
->  ```shell
->  flatpak run --filesystem=host --command=lada-cli io.github.ladaapp.lada --input <input video path>
->  ```
-> You may want to set an alias to make it easier to use
-> ```shell
-> alias lada-cli="flatpak run --filesystem=host --command=lada-cli io.github.ladaapp.lada"
->  ```
-> You could also give the filesystem permission permanently via [Flatseal](https://flathub.org/apps/com.github.tchx84.Flatseal) 
-
-> [!TIP]
-> If you want to use the Post-export action feature to run a command/script after export has finished you'll need to give the Flatpak additional permissions.
-> Add the `--talk-name=org.freedesktop.Flatpak` permission and then run your command via `flatpak-spawn`. For example: If the script you want to run is /home/user/myscript.sh then set custom command as `flatpak-spawn --host /home/user/myscript.sh`
-
-> [!TIP]
-> If you installed Lada from Flathub and drag-and-drop doesn't work, your file browser might not support [File Transfer Portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.FileTransfer.html).
-> You can fix this by:
->  1) Switching or updating your file browser to one that supports it.
->  2) Granting the app filesystem permissions (e.g., via [Flatseal](https://flathub.org/apps/com.github.tchx84.Flatseal) so it can read files directly).
->  3)  Using the 'Open' button to select the file instead of drag-and-drop.
-
-### Using Docker
-
-The app is also available via Docker (CLI only). You can get the image `ladaapp/lada` from [Docker Hub](https://hub.docker.com/r/ladaapp/lada) with this command:
-
-```shell
-docker pull ladaapp/lada:latest
-````
-
-> [!NOTE]
-> The Docker image only works with x86_64 CPUs and Nvidia/CUDA GPUs (Turing or newer: RTX 20xx up to including RTX 50xx). Ensure your NVIDIA GPU driver is up-to-date.
-> It can also be used without a GPU but it will be very slow.
-
-> [!TIP]
-> Make sure that you have installed the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on your system so Docker can pass through the GPU
-
-> [!TIP]
-> When using Docker you'll need to make the file/directory available to the container as well as the GPU:
->  ```shell
-> docker run --rm --gpus all --mount type=bind,src=<input video path>,dst=/mnt ladaapp/lada:latest --input "/mnt/<input video file>"
-> ```
-
-> [!TIP]
-> If you want to use hardware encoders like `hevc_nvenc` you have to provide the container with `video` capability.
-> 
-> With docker run you can use `--gpus 'all,"capabilities=compute,video"'`. Learn more [here](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html).
-
-### Using Windows
-
-For Windows users, the app (CLI and GUI) is packaged as a standalone .7z archive file.
-You'll need [7-zip](https://7-zip.org/) to unpack the files. It is recommended to validate the file after downloading. See the Tip below.
-
-Get the latest release from the [Releases Page](https://codeberg.org/ladaapp/lada/releases).
-
-You'll find `lada.exe` and `lada-cli.exe` after extracting the archive.
-
-> [!NOTE]
-> The Windows release only works with x86_64 CPUs. Nvidia/CUDA (Turing or newer: RTX 20xx up to including RTX 50xx) and Intel Arc GPUs are supported. Ensure your GPU driver is up-to-date.
-> It can also be used without a GPU but it will be very slow.
-
-> [!NOTE]
-> Be aware that the first start of lada.exe or lada-cli.exe could take a while before Windows Defender or your AV has scanned it. The next time you open the program it should start fast.
-
-> [!TIP]
-> It is recommended to compare the checksum of the downloaded file against the value you'll find in the release announcement.
-> This makes sure that you got the correct and unaltered file, especially important if you got the file from an unofficial source.
-> 
-> Calculate the checksum of the downloaded file on your computer and compare it against the `SHA256` value you'll find in the release announcement. They must be the same!
-> 
-> You can do this with Powershell `Get-FileHash /path/to/file.7z` or [QuickHash-GUI](https://www.quickhash-gui.org/).
-
-### Alternative Installation Methods
-
-If the packages above don't work for you then you'll have to follow the [Build](#build) steps to set up the project.
-
-Note that these instructions are mostly intended for developers to set up their environment to start working on the source code. But you should hopefully be able
-to follow the instructions even if you aren't a developer.
-
-Officially, Lada supports only Nvidia and Intel Arc GPUs but there have been reports that AMD ROCm-compatible cards and Apple work as well.
-
-You can check the issue tracker to find out more about the current state of supporting other systems.
-
-## Contribute
-
-You can find the Lada project [on GitHub](https://github.com/ladaapp/lada) and [on Codeberg](https://codeberg.org/ladaapp/lada).
-
-The home of the project is on Codeberg. GitHub is set up only as a mirror so it's code will stay in sync with the main branch on Codeberg.
-
-For contributing code, ideas or bug reports use [Pull requests](https://codeberg.org/ladaapp/lada/pulls) and the [Issue tracker](https://codeberg.org/ladaapp/lada/issues) on Codeberg.
-
-If you want to help translating the app you can contribute to existing translations or set up a new language over at [Codeberg Translate](https://translate.codeberg.org/projects/lada/lada/).
-
-[![Translation status](https://translate.codeberg.org/widget/lada/lada/multi-auto.svg)](https://translate.codeberg.org/engage/lada/)
-
-## Releases
-
-New releases will be published on both [GitHub Releases](https://github.com/ladaapp/lada/releases) and [Codeberg Releases](https://codeberg.org/ladaapp/lada/releases). You should get a notification about new releases if you star the project on either platform.
-
-## Build
-
-If you want to start hacking on this project you'll need to install the app from source. Check out the detailed installation guides for [Linux](docs/linux_install.md), [macOS](docs/macOS_install.md), and [Windows](docs/windows_install.md).
-
-## Training and dataset creation
-
-For instructions on training your own models and datasets, refer to [Training and dataset creation](docs/training_and_dataset_creation.md).
+如果你想为**去码模型本身**或上游功能做贡献，请前往上游的 [Pull requests](https://codeberg.org/ladaapp/lada/pulls) 与 [Issue tracker](https://codeberg.org/ladaapp/lada/issues)。
 
 ## License
 
-Source code and models are licensed under AGPL-3.0. See the [LICENSE.md](LICENSE.md) file for full details.
+源代码与模型沿用上游，基于 **AGPL-3.0** 授权。完整条款见 [LICENSE.md](LICENSE.md)。本 fork 的修改同样以 AGPL-3.0 发布。
 
 ## Acknowledgement
-This project builds upon work done by these fantastic individuals and projects:
 
-* [DeepMosaics](https://github.com/HypoX64/DeepMosaics): Provided code for mosaic dataset creation. Also inspired me to start this project.
-* [BasicVSR++](https://ckkelvinchan.github.io/projects/BasicVSR++) / [MMagic](https://github.com/open-mmlab/mmagic): Used as the base model for mosaic removal.
-* [YOLO/Ultralytics](https://github.com/ultralytics/ultralytics): Used for training mosaic and NSFW detection models.
-* [DOVER](https://github.com/VQAssessment/DOVER):  Used to assess video quality of created clips during the dataset creation process to filter out low-quality clips.
-* [DNN Watermark / PITA Dataset](https://github.com/tgenlis83/dnn-watermark): Used most of its code for creating a watermark detection dataset used to filter out scenes obstructed by text/watermarks/logos.
-* [NudeNet](https://github.com/notAI-tech/NudeNet/): Used as an additional NSFW classifier to filter out false positives by our own NSFW segmentation model
-* [Twitter Emoji](https://github.com/twitter/twemoji): Provided eggplant emoji as base for the app icon.
-* [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN): Used their image degradation model design for our mosaic detection model degradation pipeline.
-* [BPJDet](https://github.com/hnuzhy/BPJDet): Model for detecting human body and head. Used for creating SFW mosaics so that mosaic detection model can be trained so skip such material. 
-* [CenterFace](https://github.com/Star-Clouds/CenterFace): Model for detecting human faces. Used for creating SFW mosaics so that mosaic detection model can be trained so skip such material. 
+This project is a fork of **[lada](https://codeberg.org/ladaapp/lada)** by the Lada Authors — all credit for the original application, models, and training pipeline goes to them.
+
+Lada itself builds upon the work of these projects:
+
+* [DeepMosaics](https://github.com/HypoX64/DeepMosaics): Provided code for mosaic dataset creation. Also inspired the original project.
+* [BasicVSR++](https://ckkelvinchan.github.io/projects/BasicVSR++) / [MMagic](https://github.com/open-mmlab/mmagic): Base model for mosaic removal.
+* [YOLO/Ultralytics](https://github.com/ultralytics/ultralytics): Training mosaic and NSFW detection models.
+* [DOVER](https://github.com/VQAssessment/DOVER): Video quality assessment during dataset creation.
+* [DNN Watermark / PITA Dataset](https://github.com/tgenlis83/dnn-watermark): Watermark detection dataset.
+* [NudeNet](https://github.com/notAI-tech/NudeNet/): Additional NSFW classifier.
+* [Twitter Emoji](https://github.com/twitter/twemoji): Eggplant emoji used as base for the app icon.
+* [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN): Image degradation model design.
+* [BPJDet](https://github.com/hnuzhy/BPJDet): Human body/head detection for creating SFW mosaics.
+* [CenterFace](https://github.com/Star-Clouds/CenterFace): Face detection for creating SFW mosaics.
 * PyTorch, FFmpeg, GStreamer, GTK and [all other folks building our ecosystem](https://xkcd.com/2347/)

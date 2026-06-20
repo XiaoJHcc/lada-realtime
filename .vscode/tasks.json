@@ -1,0 +1,68 @@
+{
+  // VS Code tasks for lada-realtime. 用 .venv 内解释器，无需手动 activate。
+  // 注意：跑源码 GUI 前先关掉下载的编译版 lada.exe（共用 GApplication app-id，单实例会让后启动者静默退出）。
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "GUI: run (debug log)",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "lada.gui.main"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "LOG_LEVEL": "DEBUG" }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "GUI: run (normal)",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "lada.gui.main"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "CLI: run on <input video>",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "lada.cli.main", "--input", "${input:inputVideo}"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "LOG_LEVEL": "INFO" }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Translations: compile zh_CN/zh_TW .po -> .mo",
+      "detail": "用 build_gtk 自带 msgfmt 编译中文翻译，避开 PowerShell 执行策略",
+      "type": "shell",
+      "command": "${workspaceFolder}\\build_gtk\\gtk\\x64\\release\\bin\\msgfmt.exe",
+      "args": [
+        "translations\\${input:zhVariant}.po",
+        "-o",
+        "lada\\locale\\${input:zhVariant}\\LC_MESSAGES\\lada.mo"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "inputVideo",
+      "type": "promptString",
+      "description": "待处理视频文件路径"
+    },
+    {
+      "id": "zhVariant",
+      "type": "pickString",
+      "description": "编译哪个中文翻译",
+      "options": ["zh_CN", "zh_TW"],
+      "default": "zh_CN"
+    }
+  ]
+}
