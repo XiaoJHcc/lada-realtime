@@ -334,6 +334,9 @@ msgstr "開啟檔案後顯示的畫面"
 msgid "Watch"
 msgstr "觀看"
 
+msgid "Realtime"
+msgstr "即時預覽"
+
 msgid "Reset to factory settings"
 msgstr "重設為初始設置"
 

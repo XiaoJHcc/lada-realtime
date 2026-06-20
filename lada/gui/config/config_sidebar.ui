@@ -88,6 +88,7 @@ SPDX-License-Identifier: AGPL-3.0
                                     <object class="AdwSpinRow" id="spin_row_preview_buffer_duration">
                                         <property name="title" translatable="true">Buffer duration</property>
                                         <property name="subtitle" translatable="true">How much video is pre-loaded for playback, measured in seconds. If set to 0 this value will be chosen automatically.</property>
+                                        <property name="visible" bind-source="ConfigSidebar" bind-property="show-buffer-duration"/>
                                         <signal name="notify::value"
                                                 handler="spin_row_preview_buffer_duration_selected_callback"/>
                                         <property name="adjustment">
@@ -321,7 +322,25 @@ SPDX-License-Identifier: AGPL-3.0
                                         <property name="title" translatable="true">Default View</property>
                                         <property name="subtitle" translatable="true">View shown after opening files</property>
                                         <child>
+                                            <object class="GtkToggleButton" id="toggle_button_initial_view_realtime">
+                                                <property name="sensitive">True</property>
+                                                <property name="valign">center</property>
+                                                <property name="active">True</property>
+                                                <property name="child">
+                                                    <object class="AdwButtonContent">
+                                                        <property name="icon-name">playback-symbolic</property>
+                                                        <property name="label" translatable="true">Realtime</property>
+                                                    </object>
+                                                </property>
+                                                <signal name="clicked" handler="toggle_button_initial_view_realtime_callback"/>
+                                                <style>
+                                                    <class name="flat"/>
+                                                </style>
+                                            </object>
+                                        </child>
+                                        <child>
                                             <object class="GtkToggleButton" id="toggle_button_initial_view_preview">
+                                                <property name="group">toggle_button_initial_view_realtime</property>
                                                 <property name="sensitive">True</property>
                                                 <property name="valign">center</property>
                                                 <property name="child">
@@ -338,7 +357,7 @@ SPDX-License-Identifier: AGPL-3.0
                                         </child>
                                         <child>
                                             <object class="GtkToggleButton" id="toggle_button_initial_view_export">
-                                                <property name="group">toggle_button_initial_view_preview</property>
+                                                <property name="group">toggle_button_initial_view_realtime</property>
                                                 <property name="valign">center</property>
                                                 <property name="child">
                                                     <object class="AdwButtonContent">
@@ -347,7 +366,6 @@ SPDX-License-Identifier: AGPL-3.0
                                                     </object>
                                                 </property>
                                                 <property name="sensitive">True</property>
-                                                <property name="active">True</property>
                                                 <signal name="clicked" handler="toggle_button_initial_view_export_callback"/>
                                                 <style>
                                                     <class name="flat"/>

@@ -40,6 +40,16 @@ SPDX-License-Identifier: AGPL-3.0
                             <object class="AdwViewStack" id="view_stack">
                                 <child>
                                     <object class="AdwViewStackPage">
+                                        <property name="name">realtime</property>
+                                        <property name="title" translatable="true">Realtime</property>
+                                        <property name="icon-name">playback-symbolic</property>
+                                        <property name="child">
+                                            <object class="RealtimeView" id="realtime_view"/>
+                                        </property>
+                                    </object>
+                                </child>
+                                <child>
+                                    <object class="AdwViewStackPage">
                                         <property name="name">watch</property>
                                         <property name="title" translatable="true">Watch</property>
                                         <property name="icon-name">playback-symbolic</property>

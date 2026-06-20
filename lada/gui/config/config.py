@@ -36,7 +36,7 @@ class Config(GObject.Object):
         'export_directory': None,
         'file_name_pattern': "{orig_file_name}.restored.mp4",
         'fp16_enabled': os_utils.gpu_has_fp16_acceleration(),
-        'initial_view': 'watch',
+        'initial_view': 'realtime',
         'max_clip_duration': 180,
         'mosaic_detection_model': 'v4-fast',
         'mosaic_restoration_model': 'basicvsrpp-v1.2',
@@ -530,7 +530,7 @@ class Config(GObject.Object):
             logger.warning(f"Configured file name pattern '{file_name_pattern}' is invalid, falling back to '{self._file_name_pattern}'")
 
     def validate_and_set_initial_view(self, initial_view: str):
-        if initial_view in ["watch", "export"]:
+        if initial_view in ["realtime", "watch", "export"]:
             self._initial_view = initial_view
         elif initial_view == "preview": # previously, watch view was named preview view
             self._initial_view = "watch"

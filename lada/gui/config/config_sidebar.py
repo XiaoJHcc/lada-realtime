@@ -39,6 +39,7 @@ class ConfigSidebar(Gtk.Box):
     check_button_export_directory_defaultdir: Gtk.CheckButton = Gtk.Template.Child()
     action_row_temp_directory: Adw.ActionRow = Gtk.Template.Child()
     entry_row_file_name_pattern: Adw.EntryRow = Gtk.Template.Child()
+    toggle_button_initial_view_realtime: Gtk.ToggleButton = Gtk.Template.Child()
     toggle_button_initial_view_preview: Gtk.ToggleButton = Gtk.Template.Child()
     toggle_button_initial_view_export: Gtk.ToggleButton = Gtk.Template.Child()
     expander_row_post_export_action: Adw.ExpanderRow = Gtk.Template.Child()
@@ -60,6 +61,7 @@ class ConfigSidebar(Gtk.Box):
         self.init_done = False
         self._show_playback_section = True
         self._show_export_section = True
+        self._show_buffer_duration = True
         self._active_preset_button_group: Gtk.CheckButton | None = None
         self._create_preset_action_row: Adw.ActionRow | None = None
         self._presets_radio_buttons: list[Gtk.CheckButton] = []
@@ -151,6 +153,7 @@ class ConfigSidebar(Gtk.Box):
         # init temp directory
         self.action_row_temp_directory.set_subtitle(config.temp_directory)
 
+        self.toggle_button_initial_view_realtime.set_active(config.initial_view == "realtime")
         self.toggle_button_initial_view_preview.set_active(config.initial_view == "watch")
         self.toggle_button_initial_view_export.set_active(config.initial_view == "export")
 
@@ -196,6 +199,14 @@ class ConfigSidebar(Gtk.Box):
     @show_export_section.setter
     def show_export_section(self, value):
         self._show_export_section = value
+
+    @GObject.Property(type=bool, default=True)
+    def show_buffer_duration(self):
+        return self._show_buffer_duration
+
+    @show_buffer_duration.setter
+    def show_buffer_duration(self, value):
+        self._show_buffer_duration = value
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized
@@ -284,6 +295,11 @@ class ConfigSidebar(Gtk.Box):
     def entry_row_file_name_pattern_focused_callback(self, row_entry, param_spec):
         is_valid = validate_file_name_pattern(self.entry_row_file_name_pattern.get_text())
         utils.set_validation_css_classes(self.entry_row_file_name_pattern, is_valid)
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def toggle_button_initial_view_realtime_callback(self, button_clicked):
+        self._config.initial_view = "realtime"
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized

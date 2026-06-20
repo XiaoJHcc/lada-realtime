@@ -14,6 +14,7 @@ from lada.gui.config.config import Config
 from lada.gui.export.export_view import ExportView
 from lada.gui.fileselection.file_selection_view import FileSelectionView
 from lada.gui.watch.watch_view import WatchView
+from lada.gui.realtime.realtime_view import RealtimeView
 from lada.gui.shortcuts import ShortcutsManager
 
 here = pathlib.Path(__file__).parent.resolve()
@@ -28,6 +29,7 @@ class MainWindow(Adw.ApplicationWindow):
     file_selection_view: FileSelectionView = Gtk.Template.Child()
     export_view: ExportView = Gtk.Template.Child()
     watch_view: WatchView = Gtk.Template.Child()
+    realtime_view: RealtimeView = Gtk.Template.Child()
     view_stack: Adw.ViewStack = Gtk.Template.Child()
     stack: Gtk.Stack = Gtk.Template.Child()
     shortcut_controller = Gtk.Template.Child()
@@ -68,6 +70,16 @@ class MainWindow(Adw.ApplicationWindow):
         self.export_view.connect("video-export-requested", lambda obj, restore_directory_or_file: self.on_video_export_requested(restore_directory_or_file))
         self.export_view.connect("shutdown-confirmation-requested", lambda *args: self.present())
         self.watch_view.props.view_stack = self.view_stack
+        self.realtime_view.props.view_stack = self.view_stack
+        self.realtime_view.connect("toggle-fullscreen-requested", lambda *args: self.on_toggle_fullscreen())
+        self.realtime_view.connect("window-resize-requested", self.on_window_resize_requested)
+
+        # Single-direction playback-position hand-off between Watch and Realtime tabs.
+        # Connected after the views so their own visible-child-name handlers (pause leaving,
+        # init entering) run first; we then read the leaving view's position and seek the
+        # entering one to it once its pipeline is ready. Pipelines stay independent.
+        self._previous_view_name = self.view_stack.props.visible_child_name
+        self.view_stack.connect("notify::visible-child-name", self._on_view_changed_handoff)
 
         self.window_focused = False
 
@@ -81,15 +93,64 @@ class MainWindow(Adw.ApplicationWindow):
 
     def on_files_selected(self, files: list[Gio.File]):
         self.stack.props.visible_child_name = "main"
-        self.view_stack.props.visible_child_name = "watch" if self._config.initial_view == "watch" else "export"
+        if self._config.initial_view in ("realtime", "watch", "export"):
+            self.view_stack.props.visible_child_name = self._config.initial_view
+        else:
+            self.view_stack.props.visible_child_name = "realtime"
         self.watch_view.add_files(files)
+        self.realtime_view.add_files(files)
+        self.export_view.add_files(files)
         if self.view_stack.props.visible_child_name == "watch":
             self.watch_view.play_file(0)
-        self.export_view.add_files(files)
+        elif self.view_stack.props.visible_child_name == "realtime":
+            self.realtime_view.play_file(0)
+        self._previous_view_name = self.view_stack.props.visible_child_name
+
+    def _handoff_view(self, name: str):
+        if name == "watch":
+            return self.watch_view
+        elif name == "realtime":
+            return self.realtime_view
+        return None
+
+    def _on_view_changed_handoff(self, obj, spec):
+        new_name = obj.get_property(spec.name)
+        old_name = self._previous_view_name
+        self._previous_view_name = new_name
+
+        from_view = self._handoff_view(old_name)
+        to_view = self._handoff_view(new_name)
+        if from_view is None or to_view is None or from_view is to_view:
+            return
+
+        # Read the leaving view's current playback position.
+        if not getattr(from_view, "_video_preview_init_done", False) or from_view.pipeline_manager is None:
+            return
+        position_ns = from_view.pipeline_manager.get_position_ns()
+        if position_ns is None or position_ns < 0:
+            return
+
+        # Apply it to the entering view, waiting for its pipeline to finish (re)initializing.
+        # First-ever entry kicks off play_file(0) asynchronously, so poll until ready.
+        attempts = {"n": 0}
+        def apply_seek():
+            attempts["n"] += 1
+            if self.view_stack.props.visible_child_name != new_name:
+                return False  # user switched away again; abandon
+            if to_view._video_preview_init_done and to_view.pipeline_manager is not None and not to_view.seek_in_progress:
+                to_view.seek_video(position_ns)
+                return False
+            if attempts["n"] > 100:  # ~10s safety cap
+                return False
+            return True
+        GLib.timeout_add(100, apply_seek)
 
     def on_fullscreened(self, fullscreened: bool):
-        if self.stack.props.visible_child_name == "main" and self.view_stack.props.visible_child_name == "watch":
-            self.watch_view.on_fullscreened(fullscreened)
+        if self.stack.props.visible_child_name == "main":
+            if self.view_stack.props.visible_child_name == "watch":
+                self.watch_view.on_fullscreened(fullscreened)
+            elif self.view_stack.props.visible_child_name == "realtime":
+                self.realtime_view.on_fullscreened(fullscreened)
 
     def on_toggle_fullscreen(self):
         if self.is_fullscreen():
@@ -117,8 +178,11 @@ class MainWindow(Adw.ApplicationWindow):
             return
 
         self.window_focused = focused
-        if self.stack.props.visible_child_name == "main" and self.view_stack.props.visible_child_name == "watch":
-            self.watch_view.on_window_focused(focused)
+        if self.stack.props.visible_child_name == "main":
+            if self.view_stack.props.visible_child_name == "watch":
+                self.watch_view.on_window_focused(focused)
+            elif self.view_stack.props.visible_child_name == "realtime":
+                self.realtime_view.on_window_focused(focused)
 
     def _setup_shortcuts(self):
         self._shortcuts_manager.register_group("ui", "UI")
@@ -130,6 +194,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def close(self, *args):
         self.watch_view.close()
+        self.realtime_view.close()
         self.export_view.close()
 
     def _resize_window(self, paintable: Gdk.Paintable, initial: bool | None = False) -> None:

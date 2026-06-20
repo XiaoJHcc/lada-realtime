@@ -10,7 +10,7 @@
       "args": ["-m", "lada.gui.main"],
       "options": {
         "cwd": "${workspaceFolder}",
-        "env": { "LOG_LEVEL": "DEBUG" }
+        "env": { "LOG_LEVEL": "DEBUG", "LANGUAGE": "zh_CN" }
       },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
       "problemMatcher": []
@@ -20,7 +20,10 @@
       "type": "process",
       "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["-m", "lada.gui.main"],
-      "options": { "cwd": "${workspaceFolder}" },
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": { "LANGUAGE": "zh_CN" }
+      },
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
       "problemMatcher": []
     },

@@ -337,6 +337,9 @@ msgstr "添加文件后默认进入的界面"
 msgid "Watch"
 msgstr "预览"
 
+msgid "Realtime"
+msgstr "实时预览"
+
 msgid "Reset to factory settings"
 msgstr "恢复默认设置"
 
