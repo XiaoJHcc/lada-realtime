@@ -40,6 +40,14 @@ from lada.utils.threading_utils import EOF_MARKER, STOP_MARKER, StopMarker, EofM
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=LOG_LEVEL)
 
+# Realtime lookahead tuning. The AI is allowed to process up to playhead + lookahead window,
+# building a lead of restored frames during easy/empty stretches to spend on hard stretches.
+# The lookahead window is user-configurable (realtime_lookahead_frames). The output
+# queue must be large enough to actually hold that lead, else it backpressures and caps the
+# lead below the window. Frames are CPU tensors, so this is host RAM, not VRAM; capped at
+# REALTIME_FRAME_BUFFER_MAX_BYTES so high-res videos don't exhaust memory.
+REALTIME_FRAME_BUFFER_MAX_BYTES = 3 * 1024 * 1024 * 1024  # 3 GiB host RAM ceiling
+
 
 class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
     GST_PLUGIN_NAME = 'realtimeframerestorerappsrc'
@@ -81,6 +89,11 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         self.ai_ready_frames: dict[int, torch.Tensor] = {}
         self.ai_eof: bool = False
 
+        # Lightweight realtime diagnostics. Updated in the hot push loop without extra
+        # threads or GPU calls. Read via get_stats() from a GLib timeout in the view.
+        self.stats_lock: threading.Lock = threading.Lock()
+        self._reset_stats_locked()
+
         self.appsource_thread: threading.Thread | None = None
         self.appsource_thread_should_be_running: bool = False
         self.appsource_thread_stop_requested = False
@@ -91,6 +104,21 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
 
         self.frame_duration_ns: float = 0
         self.current_timestamp_ns = 0
+
+        # Realtime AI preheat lead (seconds). After a (re)start the AI restorer begins this
+        # far AHEAD of the passthrough/playhead, so by the time the clock reaches that point
+        # the restored frames are ready and playback can switch to AI output seamlessly.
+        # The 0..preheat region right after a seek shows the original (passthrough). User
+        # tunable via config; set by the view before (re)starting the worker.
+        self.preheat_duration_sec: float = 4.0
+
+        # Realtime lookahead window (frames): how far ahead of the playhead the frontier gate
+        # lets the AI work, i.e. how big a lead of restored frames it may build during easy
+        # stretches. Frames (not seconds) because the lead is bounded by clip length and
+        # memory, both frame-based, and fps varies. User tunable via config; set by the view.
+        # Effective value is clamped to >= preheat + a clip, and capped by the output buffer
+        # (see _update_processing_frontier).
+        self.lookahead_frames: int = 300
 
         self.set_property('is-live', False)
         self.set_property('emit-signals', True)
@@ -197,11 +225,22 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
                 start_ns = int(seek_position) if seek_position is not None else int(self.current_timestamp_ns)
                 self.ai_ready_frames = {}
                 self.ai_eof = False
-                self.frame_restorer = self.frame_restorer_provider.get()
+                self.reset_stats()
+                self.frame_restorer = self.frame_restorer_provider.get(
+                    frame_restoration_queue_max_bytes=self._compute_frame_buffer_max_bytes())
                 self.passthrough_restorer = PassthroughFrameRestorer(self.video_metadata.video_file)
-                self.frame_restorer.start(start_ns=start_ns)
+                # Preheat: the AI restorer starts ahead of the playhead so its frames are
+                # ready by the time the clock arrives. The passthrough (master beat / play
+                # position) starts exactly at start_ns -> the 0..preheat region shows the
+                # original, then playback switches to AI output seamlessly. Clamped so we
+                # never start the AI past EOF.
+                preheat_ns = max(0, int(self.preheat_duration_sec * Gst.SECOND))
+                duration_ns = int(self.video_metadata.frames_count * self.frame_duration_ns)
+                ai_start_ns = min(start_ns + preheat_ns, max(start_ns, duration_ns - 1))
+                self.frame_restorer.start(start_ns=ai_start_ns)
                 self.passthrough_restorer.start(start_ns=start_ns)
                 self.current_timestamp_ns = start_ns
+                logger.debug(f"realtime appsource worker: playhead start {start_ns/Gst.SECOND:.2f}s, AI preheat start {ai_start_ns/Gst.SECOND:.2f}s (+{preheat_ns/Gst.SECOND:.2f}s)")
 
             self.appsource_thread = threading.Thread(target=self._appsource_worker)
             self.appsource_thread.start()
@@ -263,6 +302,38 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         elif marker is STOP_MARKER:
             logger.debug("realtime appsource worker: stopped by request")
 
+    def _reset_stats_locked(self):
+        """Reset counters. Caller must hold stats_lock (or be in __init__)."""
+        self.stats_hit = 0
+        self.stats_fallback = 0
+        self.stats_discarded_total = 0
+        self.stats_max_ai_pts = None  # highest restored-frame PTS seen (raw pts units)
+        self.stats_ai_frames_drained = 0
+        self.stats_ready_map_size = 0
+
+    def reset_stats(self):
+        with self.stats_lock:
+            self._reset_stats_locked()
+
+    def get_stats(self) -> dict:
+        """Snapshot of realtime diagnostics counters. Cheap; safe to call from GLib timeout."""
+        with self.stats_lock:
+            max_ai_pts_ns = None
+            if self.stats_max_ai_pts is not None and self.video_metadata is not None:
+                max_ai_pts_ns = int((self.stats_max_ai_pts * self.video_metadata.time_base) * Gst.SECOND)
+            total = self.stats_hit + self.stats_fallback
+            return {
+                "hit": self.stats_hit,
+                "fallback": self.stats_fallback,
+                "hit_rate": (self.stats_hit / total) if total > 0 else 0.0,
+                "discarded_total": self.stats_discarded_total,
+                "max_ai_pts_ns": max_ai_pts_ns,
+                "ai_frames_drained": self.stats_ai_frames_drained,
+                "ready_map_size": self.stats_ready_map_size,
+                "playhead_ns": int(self.current_timestamp_ns),
+                "frame_duration_ns": self.frame_duration_ns,
+            }
+
     def _drain_ai_queue(self):
         """Non-blocking: move all currently available restored frames into ai_ready_frames."""
         if self.ai_eof:
@@ -284,6 +355,11 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
                 return
             ai_frame, ai_pts = elem
             self.ai_ready_frames[int(ai_pts)] = ai_frame
+            with self.stats_lock:
+                self.stats_ai_frames_drained += 1
+                ai_pts_int = int(ai_pts)
+                if self.stats_max_ai_pts is None or ai_pts_int > self.stats_max_ai_pts:
+                    self.stats_max_ai_pts = ai_pts_int
 
     def _pick_frame(self, passthrough_frame: torch.Tensor, pts: int) -> torch.Tensor:
         """Use the restored AI frame for this PTS if ready, else fall back to original frame.
@@ -291,10 +367,19 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         self._drain_ai_queue()
         ai_frame = self.ai_ready_frames.pop(pts, None)
         # prune stale restored frames the clock has already moved past (would never be shown)
+        stale_count = 0
         if self.ai_ready_frames:
             stale = [k for k in self.ai_ready_frames if k < pts]
             for k in stale:
                 del self.ai_ready_frames[k]
+            stale_count = len(stale)
+        with self.stats_lock:
+            if ai_frame is not None:
+                self.stats_hit += 1
+            else:
+                self.stats_fallback += 1
+            self.stats_discarded_total += stale_count
+            self.stats_ready_map_size = len(self.ai_ready_frames)
         return ai_frame if ai_frame is not None else passthrough_frame
 
     def _get_next_frame_and_push_buffer(self) -> StopMarker | EofMarker | None:
@@ -336,7 +421,50 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         self.emit('push-buffer', buf)
         self.current_timestamp_ns = frame_timestamp_ns
 
+        # Drive the processing-frontier gate: let the AI pipeline work on frames up to
+        # playhead + window, but no further. This keeps the GPU focused on frames near the
+        # playhead (so the current clip's restoration can keep up) instead of racing
+        # thousands of frames ahead on future content that gets discarded.
+        self._update_processing_frontier(buf.offset)
+
         return None
+
+    def _frame_nbytes(self) -> int:
+        """Approx bytes of one decoded BGR frame (host RAM)."""
+        return max(1, self.video_metadata.video_width * self.video_metadata.video_height * 3)
+
+    def _compute_frame_buffer_max_bytes(self) -> int:
+        """Size the output queue to hold the full lookahead window (+ a clip margin),
+        capped at the host-RAM ceiling. Returns bytes for FrameRestorer's output queue."""
+        lookahead_frames = max(0, int(self.lookahead_frames))
+        clip = int(self.frame_restorer.max_clip_length) if self.frame_restorer else 0
+        want_frames = max(1, lookahead_frames + clip)
+        want_bytes = want_frames * self._frame_nbytes()
+        if want_bytes > REALTIME_FRAME_BUFFER_MAX_BYTES:
+            capped_frames = REALTIME_FRAME_BUFFER_MAX_BYTES // self._frame_nbytes()
+            logger.info(f"realtime appsource: frame buffer capped at {REALTIME_FRAME_BUFFER_MAX_BYTES // (1024*1024)}MB "
+                        f"(~{capped_frames} frames) instead of {want_frames} for this resolution")
+            return REALTIME_FRAME_BUFFER_MAX_BYTES
+        return want_bytes
+
+    def _update_processing_frontier(self, playhead_frame: int):
+        if self.frame_restorer is None:
+            return
+        # Let the AI work up to playhead + window, but no further. Window (user-configured
+        # lookahead in seconds -> frames) must be:
+        #   >= max_clip_length      else a clip never fills before the gate stops the feeder
+        #   >= preheat + a clip     else the gate stops the AI at its preheat-ahead start
+        # and is capped by what the output buffer can actually hold (else the feeder runs
+        # ahead only to stall on a full queue).
+        fps = self.video_metadata.video_fps
+        clip = max(1, int(self.frame_restorer.max_clip_length))
+        lookahead_frames = max(0, int(self.lookahead_frames))
+        preheat_frames = int(self.preheat_duration_sec * fps) if fps else 0
+        window = max(lookahead_frames, clip * 2, preheat_frames + clip)
+        buffer_frames = REALTIME_FRAME_BUFFER_MAX_BYTES // self._frame_nbytes()
+        if window + clip > buffer_frames:
+            window = max(clip * 2, buffer_frames - clip)
+        self.frame_restorer.set_processing_frontier(playhead_frame + window)
 
 
 GObject.type_register(RealtimeFrameRestorerAppSrc)

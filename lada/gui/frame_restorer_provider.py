@@ -97,7 +97,7 @@ class FrameRestorerProvider:
                 self._clear_cache()
         self.options = options
 
-    def get(self):
+    def get(self, frame_restoration_queue_max_bytes: int | None = None):
         assert self.options is not None, "IllegalState: get called but options are not initialized. Call init before using get"
         if self.options.passthrough:
             return PassthroughFrameRestorer(self.options.video_metadata.video_file)
@@ -145,7 +145,8 @@ class FrameRestorerProvider:
                              self.models_cache["mosaic_detection_model"],
                              self.models_cache["mosaic_restoration_model"],
                              self.models_cache["mosaic_restoration_model_preferred_pad_mode"],
-                             self.options.mosaic_detection)
+                             self.options.mosaic_detection,
+                             **({"frame_restoration_queue_max_bytes": frame_restoration_queue_max_bytes} if frame_restoration_queue_max_bytes is not None else {}))
 
     def _clear_cache(self):
         if self.models_cache is None:

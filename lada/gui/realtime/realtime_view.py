@@ -254,6 +254,17 @@ class RealtimeView(Gtk.Widget):
                 self.frame_restorer_options = FrameRestorerOptionsBuilder(self.frame_restorer_options).detect_face_mosaics(self._config.detect_face_mosaics).build()
         self._config.connect("notify::detect-face-mosaics", on_detect_face_mosaics)
 
+        def on_realtime_preheat_duration(object, spec):
+            if self.pipeline_manager is not None:
+                # Takes effect on the next (re)start/seek; we don't interrupt current playback.
+                self.pipeline_manager.set_preheat_duration(self._config.realtime_preheat_duration)
+        self._config.connect("notify::realtime-preheat-duration", on_realtime_preheat_duration)
+
+        def on_realtime_lookahead_frames(object, spec):
+            if self.pipeline_manager is not None:
+                self.pipeline_manager.set_lookahead_frames(self._config.realtime_lookahead_frames)
+        self._config.connect("notify::realtime-lookahead-frames", on_realtime_lookahead_frames)
+
     def seek_video(self, seek_position_ns):
         if self.seek_in_progress:
             return
@@ -434,10 +445,14 @@ class RealtimeView(Gtk.Widget):
 
         if self.pipeline_manager:
             self.pipeline_manager.init_pipeline(self.video_metadata, None)
+            self.pipeline_manager.set_preheat_duration(self.config.realtime_preheat_duration)
+            self.pipeline_manager.set_lookahead_frames(self.config.realtime_lookahead_frames)
         else:
             # min_thresh=0: no pre-buffering on either the video or audio queue (clock-driven)
             self.pipeline_manager = RealtimePipelineManager(self.frame_restorer_provider, 0, 1.0, self.config.mute_audio, self.config.subtitles_font_size)
             self.pipeline_manager.init_pipeline(self.video_metadata, None)
+            self.pipeline_manager.set_preheat_duration(self.config.realtime_preheat_duration)
+            self.pipeline_manager.set_lookahead_frames(self.config.realtime_lookahead_frames)
             self.picture_video_player.set_paintable(self.pipeline_manager.paintable)
             self.pipeline_connection_handler_ids = [
                 self.pipeline_manager.connect("paintable-size-changed", lambda obj: GLib.idle_add(lambda: self.emit("window-resize-requested", self.pipeline_manager.paintable))),
@@ -445,6 +460,7 @@ class RealtimeView(Gtk.Widget):
                 self.pipeline_manager.connect("notify::state", lambda obj, spec: GLib.idle_add(lambda: self.on_pipeline_state(obj.get_property(spec.name)))),
             ]
             GLib.timeout_add(100, self.update_current_position)
+            GLib.timeout_add(500, self.update_diagnostics)
 
         def play():
             logger.debug("Finished opening file, play realtime pipeline...")
@@ -492,6 +508,14 @@ class RealtimeView(Gtk.Widget):
             label_text = self.get_time_label_text(position)
             self.label_current_time.set_text(label_text)
             self.widget_timeline.set_property("playhead-position", position)
+        return True
+
+    def update_diagnostics(self):
+        if not self._video_preview_init_done or self.pipeline_manager is None:
+            return True
+        stats = self.pipeline_manager.get_realtime_stats()
+        if stats is not None:
+            self.config_sidebar.update_diagnostics(stats)
         return True
 
     def get_time_label_text(self, time_ns):

@@ -340,6 +340,48 @@ msgstr "预览"
 msgid "Realtime"
 msgstr "实时预览"
 
+msgid "Diagnostics"
+msgstr "故障诊断"
+
+msgid "AI preheat lead"
+msgstr "AI 预热提前量"
+
+msgid "After seeking, the AI starts processing this many seconds ahead of the play position so restored frames are ready when playback reaches them. Higher values give the GPU more head start but show the original for longer after a seek. Tune to your hardware."
+msgstr "拖动进度后，AI 从播放位置往前这么多秒开始处理，使播放到达时去码帧已就绪。值越大，GPU 提前量越多，但拖动后看原片的时间也越长。请按你的硬件调整。"
+
+msgid "AI lookahead window"
+msgstr "AI 超前窗口"
+
+msgid "How many frames ahead of the play position the AI is allowed to work. Larger values let the AI build up a bigger lead of restored frames during easy stretches to spend on hard ones, at the cost of more memory. Limited by available memory."
+msgstr "AI 允许在播放位置之前多少帧内工作。值越大，AI 能在简单片段囤积更多去码帧、留给困难片段消费，代价是占用更多内存。受可用内存限制。"
+
+msgid "GPU processing rate"
+msgstr "GPU 处理帧率"
+
+msgid "Restored frames produced per second"
+msgstr "每秒产出的去码帧数"
+
+msgid "Ahead / behind"
+msgstr "超前 / 落后"
+
+msgid "Processed frames relative to the playhead"
+msgstr "已处理帧相对播放头的位置"
+
+msgid "ahead {ahead} / behind {behind} frames"
+msgstr "超前 {ahead} 帧 / 落后 {behind} 帧"
+
+msgid "AI hit rate"
+msgstr "AI 命中率"
+
+msgid "Share of frames shown from the AI model vs original fallback"
+msgstr "显示 AI 去码帧 vs 回退原片的占比"
+
+msgid "Discarded frames"
+msgstr "丢弃帧数"
+
+msgid "Restored frames the playhead passed before they could be shown"
+msgstr "播放头越过、来不及显示而被丢弃的去码帧"
+
 msgid "Reset to factory settings"
 msgstr "恢复默认设置"
 

@@ -26,6 +26,8 @@ SPDX-License-Identifier: AGPL-3.0
                         <property name="config" bind-source="RealtimeView" bind-property="config"/>
                         <property name="show-export-section">False</property>
                         <property name="show-buffer-duration">False</property>
+                        <property name="show-diagnostics">True</property>
+                        <property name="show-realtime-preheat">True</property>
                     </object>
                 </property>
                 <property name="content">

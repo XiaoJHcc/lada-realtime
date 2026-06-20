@@ -25,7 +25,7 @@ logging.basicConfig(level=LOG_LEVEL)
 class FrameRestorer:
     def __init__(self, device, video_file, max_clip_length, mosaic_restoration_model_name,
                  mosaic_detection_model: Yolo11SegmentationModel, mosaic_restoration_model, preferred_pad_mode,
-                 mosaic_detection=False):
+                 mosaic_detection=False, frame_restoration_queue_max_bytes=512 * 1024 * 1024):
         self.device = torch.device(device)
         self.mosaic_restoration_model_name = mosaic_restoration_model_name
         self.max_clip_length = max_clip_length
@@ -39,8 +39,10 @@ class FrameRestorer:
         self.eof = False
         self.stop_requested = False
 
-        # limit queue size to approx 512MB
-        max_frames_in_frame_restoration_queue = (512 * 1024 * 1024) // (self.video_meta_data.video_width * self.video_meta_data.video_height * 3)
+        # Output queue size. Default ~512MB = upstream behaviour (CLI export). The realtime
+        # path passes a larger value so the AI can build up a lead of restored frames during
+        # easy/empty stretches to spend on harder stretches (frames are CPU tensors).
+        max_frames_in_frame_restoration_queue = max(1, frame_restoration_queue_max_bytes // (self.video_meta_data.video_width * self.video_meta_data.video_height * 3))
         self.frame_restoration_queue = PipelineQueue(name="frame_restoration_queue", maxsize=max_frames_in_frame_restoration_queue)
 
         # limit queue size to approx 512MB
@@ -366,3 +368,9 @@ class FrameRestorer:
 
     def get_frame_restoration_queue(self) -> PipelineQueue:
         return self.frame_restoration_queue
+
+    def set_processing_frontier(self, frame_num: int | None):
+        """Limit processing to frames up to frame_num (None disables; default upstream
+        behaviour). Forwards to the detector's feeder gate, which backpressures the
+        whole chain. Only the realtime path calls this; CLI/watch never do."""
+        self.mosaic_detector.set_processing_frontier(frame_num)

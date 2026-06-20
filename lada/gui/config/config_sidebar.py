@@ -25,6 +25,8 @@ class ConfigSidebar(Gtk.Box):
 
     combo_row_gpu = Gtk.Template.Child()
     spin_row_preview_buffer_duration = Gtk.Template.Child()
+    spin_row_realtime_preheat_duration = Gtk.Template.Child()
+    spin_row_realtime_lookahead_frames = Gtk.Template.Child()
     spin_row_clip_max_duration = Gtk.Template.Child()
     switch_row_mute_audio = Gtk.Template.Child()
     switch_row_mp4_fast_start = Gtk.Template.Child()
@@ -54,6 +56,10 @@ class ConfigSidebar(Gtk.Box):
     expander_row_detection_models: Adw.ExpanderRow = Gtk.Template.Child()
     expander_row_restoration_models: Adw.ExpanderRow = Gtk.Template.Child()
     spin_row_subtitles_font_size: Adw.SpinRow = Gtk.Template.Child()
+    label_diagnostics_fps: Gtk.Label = Gtk.Template.Child()
+    label_diagnostics_ahead_behind: Gtk.Label = Gtk.Template.Child()
+    label_diagnostics_hit_rate: Gtk.Label = Gtk.Template.Child()
+    label_diagnostics_discarded: Gtk.Label = Gtk.Template.Child()
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -62,6 +68,8 @@ class ConfigSidebar(Gtk.Box):
         self._show_playback_section = True
         self._show_export_section = True
         self._show_buffer_duration = True
+        self._show_diagnostics = False
+        self._show_realtime_preheat = False
         self._active_preset_button_group: Gtk.CheckButton | None = None
         self._create_preset_action_row: Adw.ActionRow | None = None
         self._presets_radio_buttons: list[Gtk.CheckButton] = []
@@ -123,6 +131,8 @@ class ConfigSidebar(Gtk.Box):
         self.expander_row_encoding_presets.add_row(self._create_preset_action_row)
 
         self.spin_row_preview_buffer_duration.set_value(config.preview_buffer_duration)
+        self.spin_row_realtime_preheat_duration.set_value(config.realtime_preheat_duration)
+        self.spin_row_realtime_lookahead_frames.set_value(config.realtime_lookahead_frames)
         self.spin_row_clip_max_duration.set_value(config.max_clip_duration)
         self.switch_row_mute_audio.set_active(config.mute_audio)
 
@@ -208,6 +218,37 @@ class ConfigSidebar(Gtk.Box):
     def show_buffer_duration(self, value):
         self._show_buffer_duration = value
 
+    @GObject.Property(type=bool, default=False)
+    def show_diagnostics(self):
+        return self._show_diagnostics
+
+    @show_diagnostics.setter
+    def show_diagnostics(self, value):
+        self._show_diagnostics = value
+
+    @GObject.Property(type=bool, default=False)
+    def show_realtime_preheat(self):
+        return self._show_realtime_preheat
+
+    @show_realtime_preheat.setter
+    def show_realtime_preheat(self, value):
+        self._show_realtime_preheat = value
+
+    def update_diagnostics(self, stats: dict):
+        """Refresh the realtime diagnostics card from a stats snapshot (see
+        RealtimePipelineManager.get_realtime_stats). No-op if the card isn't shown."""
+        if not self._show_diagnostics:
+            return
+        ai_fps = stats.get("ai_fps", 0.0)
+        ahead = stats.get("ahead_frames", 0)
+        behind = stats.get("behind_frames", 0)
+        hit_rate = stats.get("hit_rate", 0.0)
+        discarded = stats.get("discarded_total", 0)
+        self.label_diagnostics_fps.set_text(f"{ai_fps:.1f} fps")
+        self.label_diagnostics_ahead_behind.set_text(_("ahead {ahead} / behind {behind} frames").format(ahead=ahead, behind=behind))
+        self.label_diagnostics_hit_rate.set_text(f"{hit_rate:.0%}")
+        self.label_diagnostics_discarded.set_text(str(discarded))
+
     @Gtk.Template.Callback()
     @skip_if_uninitialized
     def combo_row_gpu_selected_callback(self, combo_row, value):
@@ -225,6 +266,16 @@ class ConfigSidebar(Gtk.Box):
     @skip_if_uninitialized
     def spin_row_preview_buffer_duration_selected_callback(self, spin_row, value):
         self._config.preview_buffer_duration = spin_row.get_property("value")
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def spin_row_realtime_preheat_duration_selected_callback(self, spin_row, value):
+        self._config.realtime_preheat_duration = spin_row.get_property("value")
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def spin_row_realtime_lookahead_frames_selected_callback(self, spin_row, value):
+        self._config.realtime_lookahead_frames = int(spin_row.get_property("value"))
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized

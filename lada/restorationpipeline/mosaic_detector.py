@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 
 import logging
+import threading
 import time
 from typing import List, Tuple, Callable
 
@@ -184,6 +185,13 @@ class MosaicDetector:
         self.stop_requested = False
         self.batch_size = batch_size
 
+        # Optional processing-frontier gate (default OFF -> identical to upstream behaviour).
+        # When set, the feeder blocks before decoding a batch whose frame_num has reached the
+        # frontier, until the frontier advances (realtime playhead) or stop is requested.
+        # This backpressures the whole detect->restore chain to follow the playhead.
+        self._frontier_frame: int | None = None
+        self._frontier_cond = threading.Condition()
+
     def start(self, start_ns):
         assert self.frame_feeder_queue.empty()
         assert self.inference_queue.empty()
@@ -201,10 +209,30 @@ class MosaicDetector:
         self.frame_feeder_thread = PipelineThread(name="frame feeder worker", target=self._frame_feeder_worker, error_handler=self.error_handler)
         self.frame_feeder_thread.start()
 
+    def set_processing_frontier(self, frame_num: int | None):
+        """Allow the feeder to decode up to (but not past) frame_num. None disables the
+        gate entirely (upstream behaviour). Safe to call from any thread."""
+        with self._frontier_cond:
+            self._frontier_frame = frame_num
+            self._frontier_cond.notify_all()
+
+    def _wait_for_frontier(self, frame_num: int):
+        """Block while the gate is enabled and frame_num has reached the frontier.
+        Wakes on frontier advance or stop. No-op when the gate is disabled (frontier None)."""
+        with self._frontier_cond:
+            while (self._frontier_frame is not None
+                   and frame_num >= self._frontier_frame
+                   and not self.stop_requested):
+                self._frontier_cond.wait(timeout=0.1)
+
     def stop(self):
         logger.debug("MosaicDetector: stopping...")
         start = time.time()
         self.stop_requested = True
+
+        # wake the feeder if it's parked on the processing-frontier gate
+        with self._frontier_cond:
+            self._frontier_cond.notify_all()
 
         # unblock producer
         threading_utils.empty_out_queue(self.frame_feeder_queue)
@@ -290,6 +318,12 @@ class MosaicDetector:
             video_frames_generator = video_reader.frames()
             frame_num = self.start_frame
             while not (eof or self.stop_requested):
+                # Processing-frontier gate: park here until the playhead lets this batch
+                # through (no-op when the gate is disabled). Keeps the GPU on frames near
+                # the playhead instead of racing thousands of frames ahead.
+                self._wait_for_frontier(frame_num)
+                if self.stop_requested:
+                    break
                 try:
                     frames = []
                     for i in range(self.batch_size):

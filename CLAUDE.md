@@ -8,7 +8,26 @@
 
 **本 fork 的目标**：重写 / 新建一个**真正的实时预览**窗口，调度模型从「数据驱动（每一帧都要等到 AI 处理完、不够就停下缓冲）」改为「**时钟驱动**（播放进度永不停顿；显卡跟得上就显示 AI 去码结果，跟不上就回退到原片或降分辨率，待显卡追上）」。详见 README 的 fork 意图。**该功能尚在开发中。**
 
-> 当前这套实时改造代码尚未落地。本文件描述的是**现有上游架构**，以及实时改造需要关注/改动的位置。
+> **实时改造进度**：时钟驱动实时预览已基本成型 —— 独立路径在 `lada/gui/realtime/`(与 `lada/gui/watch/` 平级),含时钟驱动 appsrc、管线管理器、独立的 Realtime 标签页。播放墙钟驱动、永不缓冲停顿、AI 帧未就绪时回退原片。已落地的关键机制:
+> - **处理前沿闸门**(`MosaicDetector` / `FrameRestorer` 的 `set_processing_frontier`,**默认关闭** —— CLI 导出与 watch 不调用即等同上游行为):realtime appsrc 每推一帧驱动闸门,让 AI 只处理「播放头前方 N 帧」,避免 detector/YOLO 全速冲到片尾抢占 GPU、把算力浪费在会被丢弃的未来帧上。
+> - **AI 预热提前量**(config `realtime_preheat_duration`,秒,默认 4):seek 后 passthrough 从落点起播(先放原片),AI restorer 从「落点 + 预热秒数」开始,播放头到达时去码帧正好就绪 → 无缝切去码,**不停顿、不跳点**。
+> - **AI 超前窗口**(config `realtime_lookahead_frames`,帧,默认 300):闸门允许 AI 领先播放头的帧数 = 简单段可囤多少去码帧给难段消费。用帧数因为它与 clip 长度、内存挂钩、且 fps 不定。
+> - **输出队列可配**(`FrameRestorer(frame_restoration_queue_max_bytes=...)`,默认 512MB = 上游;realtime 按窗口放大并封顶 3GB 主机内存):去码帧是 CPU tensor,放大占内存不占显存。
+> - **诊断卡片**(realtime 设置页,`ConfigSidebar.show_diagnostics` 门控):GPU 处理帧率 / 超前·落后帧数 / AI 命中率 / 丢弃帧数,作为调参仪表盘。
+>
+> `lada/gui/watch/` 下的上游 buffer-first 路径**完全不动**,作为对照保留。
+> 下面「去码管线数据流」「卡顿根源」「GUI 现有应对方式」描述的是**上游 watch 路径**的架构 —— 仍然准确,且是实时路径复用/对照的基础。
+
+### 实时改造:待解决问题(下次从这里继续)
+
+按优先级,下次开工从这里接:
+
+1. **预热提前量的单位矛盾(待设计)**:`realtime_preheat_duration` 现在是**墙钟秒**(seek 后看多久原片,对用户是秒的体验)。但预热的本质 = 「AI 处理完这段帧要多久」,取决于**帧数**:同样 4 秒,60fps 要处理 240 帧、30fps 只要 120 帧,高帧率视频更难在固定秒数内预热完 → 固定秒数在高帧率视频上预热不足、到点切去码时 AI 还没准备好。两个维度(用户感知的秒 vs 处理负载的帧)耦合,**怎么设计待定**。候选思路:预热量按帧算(`preheat_frames`),UI 仍给用户展示等效秒数(用 fps 换算显示);或预热同时受「秒下限」和「帧下限」双重约束。需要先想清楚再动。
+2. **难段命中率(纯算力不足)**:GPU 单帧算力跟不上时,连续马赛克难段仍会回退原片。三旋钮(预热/超前窗口/队列)只能摊平,不能凭空造算力。
+3. **自适应降级(未实现)**:降推理分辨率(`clip_size`,检测器默认 256)、跳帧推理(处理稀疏帧 + 复用)、动态缩短 `max_clip_length` —— 用质量换吞吐,让 GPU 在难段也能跟上实时。这是解决 2 的正路。
+4. **统一解码源(优化项)**:realtime 现在 passthrough 与 AI 源各自 `VideoReader` 解码同一文件(两遍解码)。可考虑单解码源 + 共享。
+
+下面「去码管线数据流」等小节描述的是上游 watch 路径架构,仍准确,是实时路径复用/对照的基础。
 
 ## 技术栈
 
@@ -29,16 +48,20 @@ lada/
   gui/                     GTK4 GUI
     main.py, application.py, window.py
     frame_restorer_provider.py   ★ 模型加载/缓存；构造 FrameRestorer；含 PassthroughFrameRestorer
-    config/                侧边栏设置（device / model / max_clip_duration / preview_buffer_duration 等）
-    watch/                 ★★ 实时预览窗口（本 fork 主战场）
-      gstreamer_pipeline_appsrc.py    ★★ FrameRestorerAppSrc：把 AI 帧推进 GStreamer
-      gstreamer_pipeline_manager.py   ★★ 整条 GStreamer 管线 + 缓冲队列策略
-      watch_view.py                   ★★ 播放/暂停/seek UI 逻辑 + 缓冲自适应
+    config/                侧边栏设置（device / model / max_clip_duration / preview_buffer_duration / realtime_preheat_duration / realtime_lookahead_frames 等）
+    watch/                 ★ 上游 buffer-first 预览窗口（保留作对照，不动）
+      gstreamer_pipeline_appsrc.py    ★ FrameRestorerAppSrc：把 AI 帧推进 GStreamer
+      gstreamer_pipeline_manager.py   ★ 整条 GStreamer 管线 + 缓冲队列策略
+      watch_view.py                   ★ 播放/暂停/seek UI 逻辑 + 缓冲自适应
       timeline.py, seek_preview_popover.py, overlay_elements_controller.py
+    realtime/              ★★ 时钟驱动实时预览（本 fork 主战场，与 watch/ 平级）
+      gstreamer_pipeline_appsrc_realtime.py  ★★ RealtimeFrameRestorerAppSrc：时钟驱动推帧 + passthrough 回退 + 处理前沿/预热/超前窗口 + 诊断埋点
+      gstreamer_pipeline_manager_realtime.py ★★ RealtimePipelineManager：无 min-threshold 缓冲，暴露诊断/预热/窗口 setter
+      realtime_view.py                ★★ Realtime 标签页 UI（复用 watch 的 overlay/seek-preview，精简缓冲逻辑）
     export/                导出页面 UI
-  restorationpipeline/     ★★★ 去码核心管线（实时卡顿的根源就在这）
-    frame_restorer.py            ★★★ FrameRestorer：编排 5 个工作线程 + 队列
-    mosaic_detector.py           ★★★ MosaicDetector：检测 + 把帧聚成 Clip（含 max_clip_length 逻辑）
+  restorationpipeline/     ★★★ 去码核心管线（CLI 导出与两个预览路径共用）
+    frame_restorer.py            ★★★ FrameRestorer：编排 5 个工作线程 + 队列；set_processing_frontier（默认关闭闸门）
+    mosaic_detector.py           ★★★ MosaicDetector：检测 + 把帧聚成 Clip（含 max_clip_length + feeder 处理前沿闸门）
     basicvsrpp_mosaic_restorer.py  BasicVSR++ 推理封装（restore(clip)）
     deepmosaics_mosaic_restorer.py
   models/                  模型定义（basicvsrpp/、yolo/、deepmosaics/ 等）

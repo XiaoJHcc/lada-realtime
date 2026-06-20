@@ -17,6 +17,7 @@ Audio / subtitles / seek behaviour is inherited unchanged.
 
 import logging
 import sys
+import time
 
 from gi.repository import GLib, Gst, Gdk
 
@@ -79,3 +80,63 @@ class RealtimePipelineManager(PipelineManager):
         self.video_buffer_queue.set_property('max-size-time', buffer_queue_max_thresh_time * Gst.SECOND)
         if self.has_audio:
             self.audio_buffer_queue.set_property('max-size-time', buffer_queue_max_thresh_time * Gst.SECOND)
+
+    def set_preheat_duration(self, seconds: float):
+        """How far ahead of the playhead the AI restorer starts after a (re)start/seek."""
+        appsrc = getattr(self, "frame_restorer_app_src", None)
+        if appsrc is not None:
+            appsrc.preheat_duration_sec = max(0.0, float(seconds))
+
+    def set_lookahead_frames(self, frames: int):
+        """How far ahead of the playhead the frontier gate lets the AI work (lead it may build)."""
+        appsrc = getattr(self, "frame_restorer_app_src", None)
+        if appsrc is not None:
+            appsrc.lookahead_frames = max(0, int(frames))
+
+    def get_realtime_stats(self) -> dict | None:
+        """Snapshot of realtime AI diagnostics + derived ahead/behind frame counts.
+        Returns None if the appsrc isn't set up yet."""
+        appsrc = getattr(self, "frame_restorer_app_src", None)
+        if appsrc is None or not hasattr(appsrc, "get_stats"):
+            return None
+        stats = appsrc.get_stats()
+
+        # Prefer the pipeline clock position over the appsrc's last-pushed PTS.
+        playhead_ns = self.get_position_ns()
+        if playhead_ns is None or playhead_ns < 0:
+            playhead_ns = stats.get("playhead_ns", 0)
+
+        frame_dur = stats.get("frame_duration_ns") or 0
+        max_ai_pts_ns = stats.get("max_ai_pts_ns")
+
+        ahead_frames = 0
+        behind_frames = 0
+        if max_ai_pts_ns is not None and frame_dur > 0:
+            # AI processes sequentially, so everything from the playhead up to the most
+            # advanced processed PTS is effectively a contiguous processed segment.
+            delta_frames = (max_ai_pts_ns - playhead_ns) / frame_dur
+            if delta_frames >= 0:
+                ahead_frames = int(round(delta_frames))
+            else:
+                behind_frames = int(round(-delta_frames))
+
+        stats["playhead_ns"] = playhead_ns
+        stats["ahead_frames"] = ahead_frames
+        stats["behind_frames"] = behind_frames
+
+        # AI throughput (frames/sec): rate of drained restored frames between samples.
+        now = time.monotonic()
+        drained = stats.get("ai_frames_drained", 0)
+        prev_t = getattr(self, "_fps_sample_time", None)
+        prev_drained = getattr(self, "_fps_sample_drained", None)
+        ai_fps = 0.0
+        if prev_t is not None and now > prev_t:
+            dt = now - prev_t
+            d_frames = drained - prev_drained
+            if dt > 0 and d_frames >= 0:
+                ai_fps = d_frames / dt
+        self._fps_sample_time = now
+        self._fps_sample_drained = drained
+        stats["ai_fps"] = ai_fps
+        return stats
+
