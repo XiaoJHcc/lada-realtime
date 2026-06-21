@@ -340,14 +340,17 @@ msgstr "即時預覽"
 msgid "Diagnostics"
 msgstr "故障診斷"
 
-msgid "AI preheat lead"
-msgstr "AI 預熱提前量"
+msgid "Realtime playback"
+msgstr "即時播放"
 
-msgid "After seeking, the AI starts processing this many seconds ahead of the play position so restored frames are ready when playback reaches them. Higher values give the GPU more head start but show the original for longer after a seek. Tune to your hardware."
-msgstr "拖動進度後，AI 從播放位置往前這麼多秒開始處理，使播放到達時去碼影格已就緒。值越大，GPU 提前量越多，但拖動後看原片的時間也越長。請依你的硬體調整。"
+msgid "Realtime clip length"
+msgstr "即時切片影格數"
 
-msgid "AI lookahead window"
-msgstr "AI 超前視窗"
+msgid "Number of frames per clip in the realtime preview. Shorter clips lower latency (the AI can keep up more easily) but reduce temporal stability. Independent from the export/preview maximum clip duration."
+msgstr "即時預覽中每個切片的影格數。切片越短延遲越低（AI 更容易跟上），但時間穩定性越弱。與匯出/預覽的最大切片影格數相互獨立。"
+
+msgid "Buffer window"
+msgstr "緩衝視窗"
 
 msgid "How many frames ahead of the play position the AI is allowed to work. Larger values let the AI build up a bigger lead of restored frames during easy stretches to spend on hard ones, at the cost of more memory. Limited by available memory."
 msgstr "AI 允許在播放位置之前多少影格內工作。值越大，AI 能在簡單片段囤積更多去碼影格、留給困難片段消費，代價是佔用更多記憶體。受可用記憶體限制。"

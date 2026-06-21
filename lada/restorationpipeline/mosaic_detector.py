@@ -185,6 +185,23 @@ class MosaicDetector:
         self.stop_requested = False
         self.batch_size = batch_size
 
+        # Production-side throughput counter: total frames the YOLO detector has actually
+        # run inference on. Monotonic, never reset on pause -> a consumer sampling it twice
+        # gets the true detection rate even while playback is paused/falling back. Plain int
+        # guarded by a lock; the GIL makes the += atomic but the lock keeps reads coherent.
+        self._detector_frames_done = 0
+        self._detector_frames_lock = threading.Lock()
+
+        # Live detection throughput: a short rolling window of (mono_time, frames, proc_seconds)
+        # for each inference batch. fps = sum(frames)/sum(proc_seconds) over the window, i.e.
+        # the model's actual processing rate while busy. Measured per batch at production time
+        # so it's valid immediately on a fresh detector (no cross-sample delta that a realtime
+        # reposition would reset to 0). Returns None when idle so the consumer can hold the last
+        # value instead of flickering to 0.
+        self._detector_fps_window: list[tuple[float, int, float]] = []
+        self._detector_fps_lock = threading.Lock()
+        self._fps_window_sec = 2.0
+
         # Optional processing-frontier gate (default OFF -> identical to upstream behaviour).
         # When set, the feeder blocks before decoding a batch whose frame_num has reached the
         # frontier, until the frontier advances (realtime playhead) or stop is requested.
@@ -208,6 +225,35 @@ class MosaicDetector:
 
         self.frame_feeder_thread = PipelineThread(name="frame feeder worker", target=self._frame_feeder_worker, error_handler=self.error_handler)
         self.frame_feeder_thread.start()
+
+    def get_detector_frames_done(self) -> int:
+        """Total frames the YOLO detector has run inference on so far (monotonic).
+        Sample twice and divide by elapsed wall time to get the detection fps."""
+        with self._detector_frames_lock:
+            return self._detector_frames_done
+
+    def _record_detector_fps(self, frames: int, proc_seconds: float):
+        """Append one inference batch's (frames, processing seconds) to the rolling window."""
+        now = time.monotonic()
+        with self._detector_fps_lock:
+            self._detector_fps_window.append((now, frames, proc_seconds))
+            cutoff = now - self._fps_window_sec
+            while self._detector_fps_window and self._detector_fps_window[0][0] < cutoff:
+                self._detector_fps_window.pop(0)
+
+    def get_detector_fps(self) -> float | None:
+        """Live detection rate: frames processed per second of model time over the last
+        ~window seconds. None when idle (no recent batch / zero processing time), so the
+        consumer holds the previous value instead of dropping to 0."""
+        now = time.monotonic()
+        with self._detector_fps_lock:
+            cutoff = now - self._fps_window_sec
+            recent = [s for s in self._detector_fps_window if s[0] >= cutoff]
+        total_frames = sum(s[1] for s in recent)
+        total_proc = sum(s[2] for s in recent)
+        if total_frames == 0 or total_proc <= 0:
+            return None
+        return total_frames / total_proc
 
     def set_processing_frontier(self, frame_num: int | None):
         """Allow the feeder to decode up to (but not past) frame_num. None disables the
@@ -366,7 +412,13 @@ class MosaicDetector:
                 break
             frames_batch, frames, frame_num = frames_data
 
+            _t0 = time.monotonic()
             batch_prediction_results = self.model.inference_and_postprocess(frames_batch, frames)
+            _proc = time.monotonic() - _t0
+
+            with self._detector_frames_lock:
+                self._detector_frames_done += len(frames)
+            self._record_detector_fps(len(frames), _proc)
 
             self.inference_queue.put((batch_prediction_results, frames_batch, frame_num))
             if self.stop_requested:

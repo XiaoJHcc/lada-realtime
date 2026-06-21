@@ -69,6 +69,34 @@ class FrameRestorer:
         self.start_stop_lock: threading.Lock = threading.Lock()
         self.stop_requested = False
 
+        # Production-side throughput counter: total frames BasicVSR++/DeepMosaics has actually
+        # restored. Monotonic, never reset on pause -> sampling it twice gives the true
+        # restoration rate even while playback is paused or falling back to passthrough.
+        self._restorer_frames_done = 0
+        self._restorer_frames_lock = threading.Lock()
+
+        # Live restoration throughput: rolling window of (mono_time, frames, proc_seconds) per
+        # restored clip. fps = sum(frames)/sum(proc_seconds), the model's real processing rate
+        # while busy. Measured per clip at production time so it's valid immediately on a fresh
+        # restorer (a realtime reposition builds a new FrameRestorer; a cross-sample delta on a
+        # monotonic counter would read 0 right after each reposition). None when idle.
+        self._restorer_fps_window: list[tuple[float, int, float]] = []
+        self._restorer_fps_lock = threading.Lock()
+        self._fps_window_sec = 2.0
+
+        # Just-in-time detector gate (realtime only). The realtime appsrc sets a playhead-based
+        # cap via set_processing_frontier (playhead + lookahead window). On its own that lets the
+        # fast YOLO detector race the WHOLE window ahead at startup, hogging the GPU from the much
+        # slower restoration model and producing clips the restorer won't consume for a long time.
+        # We additionally clamp the detector to the AI OUTPUT position (the frame restoration
+        # worker, the real clip consumer) plus a small lead, so the detector only runs just ahead
+        # of what the restorer is about to need. Lead must be >= max_clip_length so the clip
+        # covering the current output frame can always complete; 2x leaves one clip of slack.
+        self._playhead_frontier: int | None = None
+        self._output_frame_pos: int = 0
+        self._detector_lead = max(1, 2 * self.max_clip_length)
+        self._frontier_lock = threading.Lock()
+
     def start(self, start_ns=0):
         with self.start_stop_lock:
             assert self.frame_restoration_thread is None and self.clip_restoration_thread is None, "Illegal State: Tried to start FrameRestorer when it's already running. You need to stop it first"
@@ -80,6 +108,7 @@ class FrameRestorer:
             self.start_ns = start_ns
             self.start_frame = video_utils.offset_ns_to_frame_num(self.start_ns, self.video_meta_data.video_fps_exact)
             self.stop_requested = False
+            self._output_frame_pos = self.start_frame
 
             self.frame_restoration_thread = PipelineThread(name="frame restoration worker", target=self._frame_restoration_worker, error_handler=self._on_worker_thread_error)
             self.clip_restoration_thread = PipelineThread(name="clip restoration worker", target=self._clip_restoration_worker, error_handler=self._on_worker_thread_error)
@@ -263,7 +292,12 @@ class FrameRestorer:
                     logger.debug("clip restoration worker: restored_clip_queue producer unblocked")
                     break
             else:
+                _t0 = time.monotonic()
                 self._restore_clip(clip)
+                _proc = time.monotonic() - _t0
+                with self._restorer_frames_lock:
+                    self._restorer_frames_done += len(clip)
+                self._record_restorer_fps(len(clip), _proc)
                 # Release MPS driver cached memory to prevent unbounded growth
                 if self.device.type == 'mps' and hasattr(torch.mps, 'empty_cache'):
                     torch.mps.empty_cache()
@@ -319,6 +353,10 @@ class FrameRestorer:
             clip_buffer = []
 
             while not (self.eof or self.stop_requested):
+                # Publish the consumer position and re-apply the just-in-time detector gate so
+                # the detector is allowed to run only a small lead ahead of what the restorer is
+                # about to consume (no-op when the realtime playhead gate is disabled).
+                self._set_output_frame_pos(frame_num)
                 _frame_result = self._read_next_frame(video_frames_generator, frame_num)
                 if self.stop_requested or _frame_result is STOP_MARKER:
                     break
@@ -369,8 +407,80 @@ class FrameRestorer:
     def get_frame_restoration_queue(self) -> PipelineQueue:
         return self.frame_restoration_queue
 
+    def get_restorer_frames_done(self) -> int:
+        """Total frames the restoration model (BasicVSR++/DeepMosaics) has restored so far
+        (monotonic). Sample twice and divide by elapsed wall time to get the restoration fps."""
+        with self._restorer_frames_lock:
+            return self._restorer_frames_done
+
+    def _record_restorer_fps(self, frames: int, proc_seconds: float):
+        """Append one restored clip's (frames, processing seconds) to the rolling window."""
+        now = time.monotonic()
+        with self._restorer_fps_lock:
+            self._restorer_fps_window.append((now, frames, proc_seconds))
+            cutoff = now - self._fps_window_sec
+            while self._restorer_fps_window and self._restorer_fps_window[0][0] < cutoff:
+                self._restorer_fps_window.pop(0)
+
+    def get_restorer_fps(self) -> float | None:
+        """Live restoration rate: frames per second of model time over the last ~window
+        seconds. None when idle, so the consumer holds the previous value instead of 0."""
+        now = time.monotonic()
+        with self._restorer_fps_lock:
+            cutoff = now - self._fps_window_sec
+            recent = [s for s in self._restorer_fps_window if s[0] >= cutoff]
+        total_frames = sum(s[1] for s in recent)
+        total_proc = sum(s[2] for s in recent)
+        if total_frames == 0 or total_proc <= 0:
+            return None
+        return total_frames / total_proc
+
+    def get_detector_fps(self) -> float | None:
+        """Live detection rate (frames/sec of model time), forwarded from the detector."""
+        return self.mosaic_detector.get_detector_fps()
+
+    def get_detector_frames_done(self) -> int:
+        """Total frames the YOLO detector has run inference on so far (monotonic)."""
+        return self.mosaic_detector.get_detector_frames_done()
+
+    def get_output_frame_pos(self) -> int:
+        """The frame number the frame-restoration worker is currently consuming (advances
+        sequentially from start_frame). The realtime appsrc uses this to detect the AI output
+        head falling behind the playhead and trigger a reposition."""
+        with self._frontier_lock:
+            return self._output_frame_pos
+
+    def get_start_frame(self) -> int:
+        """The frame number this restorer started producing from. With output_frame_pos it
+        bounds the contiguous ready interval [start_frame, output_frame_pos) the realtime
+        buffer bar visualizes."""
+        return self.start_frame
+
     def set_processing_frontier(self, frame_num: int | None):
         """Limit processing to frames up to frame_num (None disables; default upstream
-        behaviour). Forwards to the detector's feeder gate, which backpressures the
-        whole chain. Only the realtime path calls this; CLI/watch never do."""
-        self.mosaic_detector.set_processing_frontier(frame_num)
+        behaviour). frame_num is the playhead-based cap from the realtime appsrc (playhead +
+        lookahead window). We forward the MIN of that cap and a just-in-time bound anchored to
+        the AI output position, so the fast detector can't race the whole window ahead of the
+        slow restorer and hog the GPU. Forwards to the detector's feeder gate, which
+        backpressures the whole chain. Only the realtime path calls this; CLI/watch never do."""
+        with self._frontier_lock:
+            self._playhead_frontier = frame_num
+            self._apply_frontier_locked()
+
+    def _set_output_frame_pos(self, frame_num: int):
+        """Called by the frame restoration worker as it consumes frames. Advances the
+        just-in-time detector bound so the detector keeps a small lead over the restorer."""
+        with self._frontier_lock:
+            self._output_frame_pos = frame_num
+            self._apply_frontier_locked()
+
+    def _apply_frontier_locked(self):
+        """Combine the playhead cap with the output-anchored just-in-time bound and push the
+        effective frontier to the detector. Caller holds _frontier_lock."""
+        if self._playhead_frontier is None:
+            # Gate disabled (CLI/watch): forward None so the detector runs unrestricted.
+            self.mosaic_detector.set_processing_frontier(None)
+            return
+        jit_bound = self._output_frame_pos + self._detector_lead
+        effective = min(self._playhead_frontier, jit_bound)
+        self.mosaic_detector.set_processing_frontier(effective)

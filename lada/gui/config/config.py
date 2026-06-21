@@ -45,7 +45,7 @@ class Config(GObject.Object):
         'post_export_action': PostExportAction.NONE,
         'post_export_custom_command': '',
         'preview_buffer_duration': 0,
-        'realtime_preheat_duration': 4.0,
+        'realtime_clip_length': 30,
         'realtime_lookahead_frames': 300,
         'seek_preview_enabled': True,
         'show_mosaic_detections': False,
@@ -69,7 +69,7 @@ class Config(GObject.Object):
         self._mp4_fast_start = self._defaults['mp4_fast_start']
         self._mute_audio = self._defaults['mute_audio']
         self._preview_buffer_duration = self._defaults['preview_buffer_duration']
-        self._realtime_preheat_duration = self._defaults['realtime_preheat_duration']
+        self._realtime_clip_length = self._defaults['realtime_clip_length']
         self._realtime_lookahead_frames = self._defaults['realtime_lookahead_frames']
         self._seek_preview_enabled = self._defaults['seek_preview_enabled']
         self._show_mosaic_detections = self._defaults['show_mosaic_detections']
@@ -163,14 +163,14 @@ class Config(GObject.Object):
         self.save()
 
     @GObject.Property()
-    def realtime_preheat_duration(self):
-        return self._realtime_preheat_duration
+    def realtime_clip_length(self):
+        return self._realtime_clip_length
 
-    @realtime_preheat_duration.setter
-    def realtime_preheat_duration(self, value):
-        if value == self._realtime_preheat_duration:
+    @realtime_clip_length.setter
+    def realtime_clip_length(self, value):
+        if value == self._realtime_clip_length:
             return
-        self._realtime_preheat_duration = value
+        self._realtime_clip_length = value
         self.save()
 
     @GObject.Property()
@@ -386,7 +386,7 @@ class Config(GObject.Object):
         self.post_export_action = self._defaults['post_export_action']
         self.post_export_custom_command = self._defaults['post_export_custom_command']
         self.preview_buffer_duration = self._defaults['preview_buffer_duration']
-        self.realtime_preheat_duration = self._defaults['realtime_preheat_duration']
+        self.realtime_clip_length = self._defaults['realtime_clip_length']
         self.realtime_lookahead_frames = self._defaults['realtime_lookahead_frames']
         self.seek_preview_enabled = self._defaults['seek_preview_enabled']
         self.show_mosaic_detections = self._defaults['show_mosaic_detections']
@@ -421,7 +421,7 @@ class Config(GObject.Object):
             'post_export_action': self._post_export_action.value,
             'post_export_custom_command': self._post_export_custom_command,
             'preview_buffer_duration': self._preview_buffer_duration,
-            'realtime_preheat_duration': self._realtime_preheat_duration,
+            'realtime_clip_length': self._realtime_clip_length,
             'realtime_lookahead_frames': self._realtime_lookahead_frames,
             'seek_preview_enabled': self._seek_preview_enabled,
             'show_mosaic_detections': self._show_mosaic_detections,

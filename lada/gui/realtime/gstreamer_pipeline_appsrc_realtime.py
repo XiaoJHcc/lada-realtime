@@ -17,9 +17,14 @@ the GPU can't keep up, this AppSrc never blocks waiting for AI frames:
   otherwise we immediately push the original (passthrough) frame and the late AI frame is
   discarded once playback has moved past it.
 
-Milestone 1 goal: prove "playback never stalls + passthrough fallback when AI isn't ready".
-It does not yet add the low-latency knobs (small clip window, downscaling, frame skipping)
-needed to make the AI actually keep up in realtime.
+Clip-based scheduling: the AI restorer is started at playhead + clip (one realtime clip
+ahead), so the clip the playhead currently sits in is abandoned (too late to serve) and the
+NEXT clip is ready by the time the clock reaches it. When the AI output head falls behind the
+playhead (GPU couldn't keep up, or the user seeked), the in-flight AI work is discarded and
+the restorer is repositioned to playhead + 2*clip (one extra clip of headroom to absorb the
+stop/start/first-frame restart cost). Seek and "GPU fell behind" thus share the same re-aim
+rule. The reposition runs on a background thread and never blocks the play loop: while the AI
+restorer is down/swapping, the loop falls back to passthrough.
 """
 
 import logging
@@ -85,9 +90,24 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         self.frame_restorer_provider: FrameRestorerProvider | None = None
         self.frame_restorer_lock: threading.Lock = threading.Lock()
 
+        # Short-held lock guarding the (frame_restorer, ai_ready_frames, ai_eof) triple so the
+        # play loop and a background reposition can swap the AI restorer without tearing each
+        # other's view. NEVER held across .stop()/.start()/provider.get() (those are slow) ->
+        # the play loop only ever blocks on it for the microseconds of a pointer swap.
+        self._ai_lock: threading.Lock = threading.Lock()
+
         # restored AI frames that arrived but whose PTS we haven't reached yet, keyed by PTS
         self.ai_ready_frames: dict[int, torch.Tensor] = {}
         self.ai_eof: bool = False
+
+        # Reposition (clip-based re-aim) state. When the AI output head falls behind the
+        # playhead, a background thread stops the old restorer and starts a fresh one ahead of
+        # the playhead. _reposition_lock guards this lifecycle; the generation counter lets a
+        # stop/seek cancel an in-flight reposition. Never held across a join/stop.
+        self._reposition_lock: threading.Lock = threading.Lock()
+        self._reposition_thread: threading.Thread | None = None
+        self._reposition_gen: int = 0
+        self._reposition_in_progress: bool = False
 
         # Lightweight realtime diagnostics. Updated in the hot push loop without extra
         # threads or GPU calls. Read via get_stats() from a GLib timeout in the view.
@@ -105,19 +125,18 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         self.frame_duration_ns: float = 0
         self.current_timestamp_ns = 0
 
-        # Realtime AI preheat lead (seconds). After a (re)start the AI restorer begins this
-        # far AHEAD of the passthrough/playhead, so by the time the clock reaches that point
-        # the restored frames are ready and playback can switch to AI output seamlessly.
-        # The 0..preheat region right after a seek shows the original (passthrough). User
-        # tunable via config; set by the view before (re)starting the worker.
-        self.preheat_duration_sec: float = 4.0
+        # Realtime clip length (frames). The AI restorer is started one clip ahead of the
+        # playhead (and re-aimed two clips ahead when it falls behind). This is the realtime-only
+        # clip length (config realtime_clip_length), separate from max_clip_duration which drives
+        # watch preview + CLI export. User tunable via config; set by the view before (re)start.
+        self.clip_frames: int = 30
 
-        # Realtime lookahead window (frames): how far ahead of the playhead the frontier gate
-        # lets the AI work, i.e. how big a lead of restored frames it may build during easy
-        # stretches. Frames (not seconds) because the lead is bounded by clip length and
-        # memory, both frame-based, and fps varies. User tunable via config; set by the view.
-        # Effective value is clamped to >= preheat + a clip, and capped by the output buffer
-        # (see _update_processing_frontier).
+        # Realtime lookahead/buffer window (frames): how far ahead of the playhead the frontier
+        # gate lets the AI work, i.e. how big a lead of restored frames it may build during easy
+        # stretches. Frames (not seconds) because the lead is bounded by clip length and memory,
+        # both frame-based, and fps varies. User tunable via config (UI label "Buffer window");
+        # set by the view. Effective value is clamped to >= 2*clip and capped by the output
+        # buffer (see _update_processing_frontier).
         self.lookahead_frames: int = 300
 
         self.set_property('is-live', False)
@@ -229,18 +248,24 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
                 self.frame_restorer = self.frame_restorer_provider.get(
                     frame_restoration_queue_max_bytes=self._compute_frame_buffer_max_bytes())
                 self.passthrough_restorer = PassthroughFrameRestorer(self.video_metadata.video_file)
-                # Preheat: the AI restorer starts ahead of the playhead so its frames are
-                # ready by the time the clock arrives. The passthrough (master beat / play
-                # position) starts exactly at start_ns -> the 0..preheat region shows the
-                # original, then playback switches to AI output seamlessly. Clamped so we
-                # never start the AI past EOF.
-                preheat_ns = max(0, int(self.preheat_duration_sec * Gst.SECOND))
+                # Clip-based start: the AI restorer starts one clip AHEAD of the playhead so its
+                # frames are ready by the time the clock arrives. The passthrough (master beat /
+                # play position) starts exactly at start_ns -> the 0..clip region shows the
+                # original, then playback switches to AI output seamlessly. The clip the playhead
+                # currently sits in is abandoned (too late to serve). Clamped so we never start
+                # the AI past EOF.
+                clip = max(1, int(self.clip_frames))
+                clip_ns = int(clip * self.frame_duration_ns)
                 duration_ns = int(self.video_metadata.frames_count * self.frame_duration_ns)
-                ai_start_ns = min(start_ns + preheat_ns, max(start_ns, duration_ns - 1))
+                ai_start_ns = min(start_ns + clip_ns, max(start_ns, duration_ns - 1))
                 self.frame_restorer.start(start_ns=ai_start_ns)
                 self.passthrough_restorer.start(start_ns=start_ns)
                 self.current_timestamp_ns = start_ns
-                logger.debug(f"realtime appsource worker: playhead start {start_ns/Gst.SECOND:.2f}s, AI preheat start {ai_start_ns/Gst.SECOND:.2f}s (+{preheat_ns/Gst.SECOND:.2f}s)")
+                # Clamp the detector immediately, before the first buffer is pushed, so the fast
+                # YOLO detector can't race the whole lookahead window ahead during startup. The
+                # FrameRestorer further bounds this to the AI output position internally.
+                self._update_processing_frontier(video_utils.offset_ns_to_frame_num(start_ns, self.video_metadata.video_fps_exact))
+                logger.debug(f"realtime appsource worker: playhead start {start_ns/Gst.SECOND:.2f}s, AI clip start {ai_start_ns/Gst.SECOND:.2f}s (+{clip} frames)")
 
             self.appsource_thread = threading.Thread(target=self._appsource_worker)
             self.appsource_thread.start()
@@ -258,6 +283,13 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
                 self.appsource_thread_shutdown_requested = True
             self.appsource_thread_stop_requested = True
             self.appsource_thread_should_be_running = False
+
+            # Cancel + join any in-flight reposition before tearing down the restorer. Safe to
+            # join here (we hold frame_restorer_lock): the reposition thread NEVER takes
+            # frame_restorer_lock, so there's no lock cycle. After this returns frame_restorer is
+            # either None (reposition detached/discarded) or a fully-started new restorer, which
+            # the normal stop block below then cleans up.
+            self._cancel_and_join_reposition()
 
             ai_queue = None
             if self.frame_restorer:
@@ -322,7 +354,7 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
             if self.stats_max_ai_pts is not None and self.video_metadata is not None:
                 max_ai_pts_ns = int((self.stats_max_ai_pts * self.video_metadata.time_base) * Gst.SECOND)
             total = self.stats_hit + self.stats_fallback
-            return {
+            stats = {
                 "hit": self.stats_hit,
                 "fallback": self.stats_fallback,
                 "hit_rate": (self.stats_hit / total) if total > 0 else 0.0,
@@ -333,12 +365,39 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
                 "playhead_ns": int(self.current_timestamp_ns),
                 "frame_duration_ns": self.frame_duration_ns,
             }
+        # Production-side throughput, read straight from the AI restorer's worker threads so
+        # it reflects real GPU output even while playback is paused or falling back (the drain
+        # counter above only moves when the play loop consumes a frame). frame_restorer can be
+        # None between stop/seek; report None so the manager holds the last sample.
+        #
+        # fps is measured per batch/clip at production time (get_*_fps), NOT by differentiating
+        # the monotonic *_frames_done counters here: a realtime reposition builds a fresh
+        # FrameRestorer whose counters restart at 0, which a cross-sample delta reads as 0 fps
+        # exactly when the GPU is busiest. output_frame_pos is the restorer's live consume
+        # position, used for ahead/behind so it stays correct while playback is paused.
+        with self._ai_lock:
+            fr = self.frame_restorer
+        if fr is not None and not isinstance(fr, PassthroughFrameRestorer):
+            stats["detector_fps_live"] = fr.get_detector_fps()
+            stats["restorer_fps_live"] = fr.get_restorer_fps()
+            stats["output_frame_pos"] = fr.get_output_frame_pos()
+            stats["ready_start_frame"] = fr.get_start_frame()
+        else:
+            stats["detector_fps_live"] = None
+            stats["restorer_fps_live"] = None
+            stats["output_frame_pos"] = None
+            stats["ready_start_frame"] = None
+        # Buffer-bar window length (frames): how far ahead of the playhead the AI may work.
+        stats["window_frames"] = max(0, int(self.lookahead_frames))
+        return stats
 
     def _drain_ai_queue(self):
-        """Non-blocking: move all currently available restored frames into ai_ready_frames."""
-        if self.ai_eof:
+        """Non-blocking: move all currently available restored frames into ai_ready_frames.
+        Caller holds _ai_lock so a concurrent reposition can't swap frame_restorer mid-drain."""
+        fr = self.frame_restorer
+        if fr is None or self.ai_eof:
             return
-        ai_queue = self.frame_restorer.get_frame_restoration_queue()
+        ai_queue = fr.get_frame_restoration_queue()
         while True:
             try:
                 elem = ai_queue.get(block=False)
@@ -363,23 +422,27 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
 
     def _pick_frame(self, passthrough_frame: torch.Tensor, pts: int) -> torch.Tensor:
         """Use the restored AI frame for this PTS if ready, else fall back to original frame.
-        Discards any restored frames whose PTS playback has already passed."""
-        self._drain_ai_queue()
-        ai_frame = self.ai_ready_frames.pop(pts, None)
-        # prune stale restored frames the clock has already moved past (would never be shown)
-        stale_count = 0
-        if self.ai_ready_frames:
-            stale = [k for k in self.ai_ready_frames if k < pts]
-            for k in stale:
-                del self.ai_ready_frames[k]
-            stale_count = len(stale)
+        Discards any restored frames whose PTS playback has already passed. Held under _ai_lock
+        so a concurrent reposition (which resets ai_ready_frames / nulls frame_restorer) can't
+        tear the drain+pop+prune view; falling back to passthrough is always safe."""
+        with self._ai_lock:
+            self._drain_ai_queue()
+            ai_frame = self.ai_ready_frames.pop(pts, None)
+            # prune stale restored frames the clock has already moved past (would never be shown)
+            stale_count = 0
+            if self.ai_ready_frames:
+                stale = [k for k in self.ai_ready_frames if k < pts]
+                for k in stale:
+                    del self.ai_ready_frames[k]
+                stale_count = len(stale)
+            ready_map_size = len(self.ai_ready_frames)
         with self.stats_lock:
             if ai_frame is not None:
                 self.stats_hit += 1
             else:
                 self.stats_fallback += 1
             self.stats_discarded_total += stale_count
-            self.stats_ready_map_size = len(self.ai_ready_frames)
+            self.stats_ready_map_size = ready_map_size
         return ai_frame if ai_frame is not None else passthrough_frame
 
     def _get_next_frame_and_push_buffer(self) -> StopMarker | EofMarker | None:
@@ -427,6 +490,11 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         # thousands of frames ahead on future content that gets discarded.
         self._update_processing_frontier(buf.offset)
 
+        # If the AI output head has fallen behind the playhead, abandon the in-flight (now
+        # stale) work and re-aim the restorer ahead of the playhead. No-op while a reposition
+        # is already running or the AI is still ahead.
+        self._maybe_reposition(buf.offset)
+
         return None
 
     def _frame_nbytes(self) -> int:
@@ -435,9 +503,11 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
 
     def _compute_frame_buffer_max_bytes(self) -> int:
         """Size the output queue to hold the full lookahead window (+ a clip margin),
-        capped at the host-RAM ceiling. Returns bytes for FrameRestorer's output queue."""
+        capped at the host-RAM ceiling. Returns bytes for FrameRestorer's output queue.
+        Uses self.clip_frames (known before the restorer exists) so it's correct on cold
+        start and when a reposition rebuilds the queue."""
         lookahead_frames = max(0, int(self.lookahead_frames))
-        clip = int(self.frame_restorer.max_clip_length) if self.frame_restorer else 0
+        clip = max(1, int(self.clip_frames))
         want_frames = max(1, lookahead_frames + clip)
         want_bytes = want_frames * self._frame_nbytes()
         if want_bytes > REALTIME_FRAME_BUFFER_MAX_BYTES:
@@ -448,23 +518,140 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         return want_bytes
 
     def _update_processing_frontier(self, playhead_frame: int):
-        if self.frame_restorer is None:
+        with self._ai_lock:
+            fr = self.frame_restorer
+        if fr is None:
             return
         # Let the AI work up to playhead + window, but no further. Window (user-configured
-        # lookahead in seconds -> frames) must be:
-        #   >= max_clip_length      else a clip never fills before the gate stops the feeder
-        #   >= preheat + a clip     else the gate stops the AI at its preheat-ahead start
-        # and is capped by what the output buffer can actually hold (else the feeder runs
-        # ahead only to stall on a full queue).
-        fps = self.video_metadata.video_fps
-        clip = max(1, int(self.frame_restorer.max_clip_length))
+        # "Buffer window" in frames) is clamped to:
+        #   >= 2*clip   so a clip can always fill ahead of the playhead (one clip to fill +
+        #               one clip of slack), matching FrameRestorer's 2*clip detector lead
+        # and capped by what the output buffer can actually hold (else the feeder runs ahead
+        # only to stall on a full queue).
+        # NOTE: this is only the playhead-based CAP. FrameRestorer.set_processing_frontier
+        # further clamps the detector to (AI output position + a clip lead), so the fast
+        # detector can't race this whole window ahead and starve the slow restorer of GPU.
+        # A large buffer window therefore grows the restored-frame lead (output queue)
+        # without making the detector burn GPU on far-future frames.
+        clip = max(1, int(self.clip_frames))
         lookahead_frames = max(0, int(self.lookahead_frames))
-        preheat_frames = int(self.preheat_duration_sec * fps) if fps else 0
-        window = max(lookahead_frames, clip * 2, preheat_frames + clip)
+        window = max(lookahead_frames, clip * 2)
         buffer_frames = REALTIME_FRAME_BUFFER_MAX_BYTES // self._frame_nbytes()
         if window + clip > buffer_frames:
             window = max(clip * 2, buffer_frames - clip)
-        self.frame_restorer.set_processing_frontier(playhead_frame + window)
+        fr.set_processing_frontier(playhead_frame + window)
+
+    def _maybe_reposition(self, playhead_frame: int):
+        """If the AI output head has fallen to/behind the playhead, abandon the in-flight work
+        and re-aim the restorer at playhead + 2*clip. No-op while a reposition is already
+        running (frame_restorer is None / flag set) or while the AI is still ahead.
+
+        Anti-thrash relies on two things, not a timer: (a) a reposition in progress nulls
+        frame_restorer so this returns immediately, and (b) the 2*clip headroom lands the new
+        output head well ahead of the playhead, so it won't instantly re-trigger."""
+        if self._reposition_in_progress:
+            return
+        fr = self.frame_restorer
+        if fr is None or self.ai_eof:
+            return
+        if fr.get_output_frame_pos() > playhead_frame:
+            return
+        clip = max(1, int(self.clip_frames))
+        self._spawn_reposition(playhead_frame + 2 * clip)
+
+    def _spawn_reposition(self, ai_start_frame: int):
+        with self._reposition_lock:
+            if self._reposition_in_progress:
+                return
+            if self.appsource_thread_stop_requested or self.appsource_thread_shutdown_requested:
+                return
+            self._reposition_in_progress = True
+            self._reposition_gen += 1
+            gen = self._reposition_gen
+            t = threading.Thread(target=self._reposition_worker, args=(ai_start_frame, gen), daemon=True)
+            self._reposition_thread = t
+            t.start()
+
+    def _reposition_cancelled(self, gen: int) -> bool:
+        if self.appsource_thread_stop_requested or self.appsource_thread_shutdown_requested:
+            return True
+        with self._reposition_lock:
+            return self._reposition_gen != gen
+
+    def _clamp_frame_to_start_ns(self, frame_num: int) -> int:
+        duration_ns = int(self.video_metadata.frames_count * self.frame_duration_ns)
+        start_ns = int(max(0, frame_num) * self.frame_duration_ns)
+        return min(start_ns, max(0, duration_ns - 1))
+
+    def _reposition_worker(self, ai_start_frame: int, gen: int):
+        """Background re-aim. NEVER joins the play loop. Detaches + stops the old restorer
+        (slow, outside _ai_lock so the play loop only ever sees the cheap pointer swap), then
+        starts a fresh one ahead of the playhead and swaps it in iff still the current gen."""
+        logger.debug(f"realtime reposition: re-aiming AI to frame {ai_start_frame} (gen {gen})")
+        try:
+            # 1) detach old + reset ready map under _ai_lock (cheap). Play loop now sees
+            #    frame_restorer=None and falls back to passthrough until the new one is in.
+            with self._ai_lock:
+                old = self.frame_restorer
+                self.frame_restorer = None
+                self.ai_ready_frames = {}
+                self.ai_eof = False
+
+            # 2) stop old OUTSIDE _ai_lock (joins worker threads). Preserve the stop handshake.
+            if old is not None:
+                old_q = old.get_frame_restoration_queue()
+                old.stop()
+                threading_utils.put_queue_stop_marker(old_q)
+                threading_utils.empty_out_queue(old_q)
+
+            if self._reposition_cancelled(gen):
+                logger.debug(f"realtime reposition: cancelled before start (gen {gen})")
+                return
+
+            # 3) build + start the new restorer (models are cached -> no reload).
+            start_ns = self._clamp_frame_to_start_ns(ai_start_frame)
+            new = self.frame_restorer_provider.get(
+                frame_restoration_queue_max_bytes=self._compute_frame_buffer_max_bytes())
+            new.start(start_ns=start_ns)
+
+            # 4) swap in iff still current gen, else discard the freshly-built one.
+            doomed = None
+            with self._ai_lock:
+                if self._reposition_cancelled(gen):
+                    doomed = new
+                else:
+                    self.frame_restorer = new
+                    self.ai_ready_frames = {}
+                    self.ai_eof = False
+            if doomed is not None:
+                logger.debug(f"realtime reposition: cancelled after start, discarding (gen {gen})")
+                doomed_q = doomed.get_frame_restoration_queue()
+                doomed.stop()
+                threading_utils.put_queue_stop_marker(doomed_q)
+                threading_utils.empty_out_queue(doomed_q)
+                return
+
+            self._update_processing_frontier(
+                video_utils.offset_ns_to_frame_num(self.current_timestamp_ns, self.video_metadata.video_fps_exact))
+            logger.debug(f"realtime reposition: AI now at {start_ns/Gst.SECOND:.2f}s (gen {gen})")
+        finally:
+            with self._reposition_lock:
+                if self._reposition_gen == gen:
+                    self._reposition_in_progress = False
+                    self._reposition_thread = None
+
+    def _cancel_and_join_reposition(self):
+        """Cancel an in-flight reposition and wait for its thread to finish. Called from
+        _stop_appsource_worker while holding frame_restorer_lock. Safe: the reposition thread
+        never takes frame_restorer_lock, so there's no lock cycle."""
+        with self._reposition_lock:
+            self._reposition_gen += 1  # invalidate any running gen
+            t = self._reposition_thread
+        if t is not None and t is not threading.current_thread():
+            t.join()
+        with self._reposition_lock:
+            self._reposition_in_progress = False
+            self._reposition_thread = None
 
 
 GObject.type_register(RealtimeFrameRestorerAppSrc)

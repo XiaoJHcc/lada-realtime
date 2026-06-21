@@ -10,6 +10,7 @@ from lada import LOG_LEVEL, ModelFiles, ModelFile
 from lada.gui import utils
 from lada.gui.config.config import Config, ColorScheme, PostExportAction
 from lada.gui.config.encoding_preset_dialog import EncodingPresetDialog
+from lada.gui.realtime.buffer_bar import BufferBar  # noqa: F401 (registers BufferBar GType for the template)
 from lada.gui.utils import skip_if_uninitialized, validate_file_name_pattern
 from lada.utils import video_utils
 from lada.utils.video_utils import EncodingPreset
@@ -25,7 +26,7 @@ class ConfigSidebar(Gtk.Box):
 
     combo_row_gpu = Gtk.Template.Child()
     spin_row_preview_buffer_duration = Gtk.Template.Child()
-    spin_row_realtime_preheat_duration = Gtk.Template.Child()
+    spin_row_realtime_clip_length = Gtk.Template.Child()
     spin_row_realtime_lookahead_frames = Gtk.Template.Child()
     spin_row_clip_max_duration = Gtk.Template.Child()
     switch_row_mute_audio = Gtk.Template.Child()
@@ -56,8 +57,9 @@ class ConfigSidebar(Gtk.Box):
     expander_row_detection_models: Adw.ExpanderRow = Gtk.Template.Child()
     expander_row_restoration_models: Adw.ExpanderRow = Gtk.Template.Child()
     spin_row_subtitles_font_size: Adw.SpinRow = Gtk.Template.Child()
-    label_diagnostics_fps: Gtk.Label = Gtk.Template.Child()
-    label_diagnostics_ahead_behind: Gtk.Label = Gtk.Template.Child()
+    label_diagnostics_detector_fps: Gtk.Label = Gtk.Template.Child()
+    label_diagnostics_restorer_fps: Gtk.Label = Gtk.Template.Child()
+    buffer_bar: BufferBar = Gtk.Template.Child()
     label_diagnostics_hit_rate: Gtk.Label = Gtk.Template.Child()
     label_diagnostics_discarded: Gtk.Label = Gtk.Template.Child()
 
@@ -69,7 +71,7 @@ class ConfigSidebar(Gtk.Box):
         self._show_export_section = True
         self._show_buffer_duration = True
         self._show_diagnostics = False
-        self._show_realtime_preheat = False
+        self._show_realtime_playback = False
         self._active_preset_button_group: Gtk.CheckButton | None = None
         self._create_preset_action_row: Adw.ActionRow | None = None
         self._presets_radio_buttons: list[Gtk.CheckButton] = []
@@ -131,7 +133,7 @@ class ConfigSidebar(Gtk.Box):
         self.expander_row_encoding_presets.add_row(self._create_preset_action_row)
 
         self.spin_row_preview_buffer_duration.set_value(config.preview_buffer_duration)
-        self.spin_row_realtime_preheat_duration.set_value(config.realtime_preheat_duration)
+        self.spin_row_realtime_clip_length.set_value(config.realtime_clip_length)
         self.spin_row_realtime_lookahead_frames.set_value(config.realtime_lookahead_frames)
         self.spin_row_clip_max_duration.set_value(config.max_clip_duration)
         self.switch_row_mute_audio.set_active(config.mute_audio)
@@ -227,27 +229,35 @@ class ConfigSidebar(Gtk.Box):
         self._show_diagnostics = value
 
     @GObject.Property(type=bool, default=False)
-    def show_realtime_preheat(self):
-        return self._show_realtime_preheat
+    def show_realtime_playback(self):
+        return self._show_realtime_playback
 
-    @show_realtime_preheat.setter
-    def show_realtime_preheat(self, value):
-        self._show_realtime_preheat = value
+    @show_realtime_playback.setter
+    def show_realtime_playback(self, value):
+        self._show_realtime_playback = value
 
     def update_diagnostics(self, stats: dict):
-        """Refresh the realtime diagnostics card from a stats snapshot (see
-        RealtimePipelineManager.get_realtime_stats). No-op if the card isn't shown."""
-        if not self._show_diagnostics:
+        """Refresh the realtime diagnostics rows (now part of the Realtime playback card) from
+        a stats snapshot (see RealtimePipelineManager.get_realtime_stats). No-op if the card
+        isn't shown."""
+        if not self._show_realtime_playback:
             return
-        ai_fps = stats.get("ai_fps", 0.0)
-        ahead = stats.get("ahead_frames", 0)
-        behind = stats.get("behind_frames", 0)
+        detector_fps = stats.get("detector_fps", 0.0)
+        restorer_fps = stats.get("restorer_fps", 0.0)
         hit_rate = stats.get("hit_rate", 0.0)
         discarded = stats.get("discarded_total", 0)
-        self.label_diagnostics_fps.set_text(f"{ai_fps:.1f} fps")
-        self.label_diagnostics_ahead_behind.set_text(_("ahead {ahead} / behind {behind} frames").format(ahead=ahead, behind=behind))
+        self.label_diagnostics_detector_fps.set_text(f"{detector_fps:.1f} fps")
+        self.label_diagnostics_restorer_fps.set_text(f"{restorer_fps:.1f} fps")
         self.label_diagnostics_hit_rate.set_text(f"{hit_rate:.0%}")
         self.label_diagnostics_discarded.set_text(str(discarded))
+        if self.buffer_bar.style_manager is None:
+            self.buffer_bar.style_manager = Adw.StyleManager.get_default()
+        self.buffer_bar.update_buffer(
+            window_frames=stats.get("window_frames", 0),
+            playhead_frame=stats.get("playhead_frame", 0),
+            ready_start_frame=stats.get("ready_start_frame", 0),
+            ready_end_frame=stats.get("output_frame_pos", 0),
+        )
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized
@@ -269,8 +279,8 @@ class ConfigSidebar(Gtk.Box):
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized
-    def spin_row_realtime_preheat_duration_selected_callback(self, spin_row, value):
-        self._config.realtime_preheat_duration = spin_row.get_property("value")
+    def spin_row_realtime_clip_length_selected_callback(self, spin_row, value):
+        self._config.realtime_clip_length = int(spin_row.get_property("value"))
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized

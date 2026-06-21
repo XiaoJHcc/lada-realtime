@@ -81,11 +81,13 @@ class RealtimePipelineManager(PipelineManager):
         if self.has_audio:
             self.audio_buffer_queue.set_property('max-size-time', buffer_queue_max_thresh_time * Gst.SECOND)
 
-    def set_preheat_duration(self, seconds: float):
-        """How far ahead of the playhead the AI restorer starts after a (re)start/seek."""
+    def set_realtime_clip_frames(self, frames: int):
+        """Realtime-only clip length (frames). The AI restorer starts one clip ahead of the
+        playhead and re-aims two clips ahead when it falls behind. Separate from the shared
+        max_clip_duration used by watch/export."""
         appsrc = getattr(self, "frame_restorer_app_src", None)
         if appsrc is not None:
-            appsrc.preheat_duration_sec = max(0.0, float(seconds))
+            appsrc.clip_frames = max(1, int(frames))
 
     def set_lookahead_frames(self, frames: int):
         """How far ahead of the playhead the frontier gate lets the AI work (lead it may build)."""
@@ -107,36 +109,71 @@ class RealtimePipelineManager(PipelineManager):
             playhead_ns = stats.get("playhead_ns", 0)
 
         frame_dur = stats.get("frame_duration_ns") or 0
-        max_ai_pts_ns = stats.get("max_ai_pts_ns")
 
+        # Ahead/behind from the restorer's LIVE consume position (output_frame_pos), so it keeps
+        # updating while playback is paused. The AI processes sequentially, so output_frame_pos
+        # is the head of the contiguous processed segment. Fall back to max_ai_pts (last drained
+        # PTS) only when the restorer isn't up. playhead in frames for an apples-to-apples diff.
         ahead_frames = 0
         behind_frames = 0
-        if max_ai_pts_ns is not None and frame_dur > 0:
-            # AI processes sequentially, so everything from the playhead up to the most
-            # advanced processed PTS is effectively a contiguous processed segment.
-            delta_frames = (max_ai_pts_ns - playhead_ns) / frame_dur
-            if delta_frames >= 0:
-                ahead_frames = int(round(delta_frames))
-            else:
-                behind_frames = int(round(-delta_frames))
+        output_frame_pos = stats.get("output_frame_pos")
+        max_ai_pts_ns = stats.get("max_ai_pts_ns")
+        if frame_dur > 0:
+            playhead_frame = playhead_ns / frame_dur
+            ai_head_frame = None
+            if output_frame_pos is not None:
+                ai_head_frame = output_frame_pos
+            elif max_ai_pts_ns is not None:
+                ai_head_frame = max_ai_pts_ns / frame_dur
+            if ai_head_frame is not None:
+                delta_frames = ai_head_frame - playhead_frame
+                if delta_frames >= 0:
+                    ahead_frames = int(round(delta_frames))
+                else:
+                    behind_frames = int(round(-delta_frames))
 
         stats["playhead_ns"] = playhead_ns
         stats["ahead_frames"] = ahead_frames
         stats["behind_frames"] = behind_frames
 
-        # AI throughput (frames/sec): rate of drained restored frames between samples.
+        # Buffer-bar fields (frame numbers). The bar draws the window [playhead, playhead+window)
+        # and fills it where the ready interval [ready_start_frame, output_frame_pos) overlaps.
+        # playhead_frame derived from the clock so it tracks playback; ready bounds come live
+        # from the restorer so the bar keeps filling while paused.
+        if frame_dur > 0:
+            stats["playhead_frame"] = int(round(playhead_ns / frame_dur))
+        else:
+            stats["playhead_frame"] = 0
+        # ready_start_frame / output_frame_pos / window_frames are already in stats (appsrc).
+
+        # Production-side GPU throughput, measured per batch/clip in the worker threads and
+        # forwarded as detector_fps_live / restorer_fps_live. Stays correct across realtime
+        # repositions (a fresh restorer reports a valid rate after its first batch) where the
+        # old differentiate-a-counter approach read 0. None means idle -> hold the last sample.
+        def _hold(live_value, hold_attr):
+            if live_value is not None:
+                setattr(self, hold_attr, live_value)
+                return live_value
+            return getattr(self, hold_attr, 0.0)
+
+        stats["detector_fps"] = _hold(stats.get("detector_fps_live"), "_fps_hold_detector")
+        stats["restorer_fps"] = _hold(stats.get("restorer_fps_live"), "_fps_hold_restorer")
+
+        # Consume-side rate: how fast the play loop actually drains restored frames. Kept for
+        # comparison with restorer_fps (production high + consume low => building a lead;
+        # both low while behind => genuinely out of compute). Goes to 0 when paused.
         now = time.monotonic()
-        drained = stats.get("ai_frames_drained", 0)
         prev_t = getattr(self, "_fps_sample_time", None)
+        dt = (now - prev_t) if (prev_t is not None and now > prev_t) else 0.0
+        cur_drained = stats.get("ai_frames_drained", 0)
         prev_drained = getattr(self, "_fps_sample_drained", None)
-        ai_fps = 0.0
-        if prev_t is not None and now > prev_t:
-            dt = now - prev_t
-            d_frames = drained - prev_drained
-            if dt > 0 and d_frames >= 0:
-                ai_fps = d_frames / dt
+        self._fps_sample_drained = cur_drained
+        if cur_drained is None or prev_drained is None or dt <= 0:
+            stats["ai_fps"] = 0.0
+        else:
+            d = cur_drained - prev_drained
+            stats["ai_fps"] = d / dt if d >= 0 else 0.0  # d<0 => counter reset on (re)start
+
         self._fps_sample_time = now
-        self._fps_sample_drained = drained
-        stats["ai_fps"] = ai_fps
         return stats
 

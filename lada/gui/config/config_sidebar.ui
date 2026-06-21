@@ -82,6 +82,128 @@ SPDX-License-Identifier: AGPL-3.0
                         </child>
                         <child>
                             <object class="AdwPreferencesGroup">
+                                <property name="title" translatable="true">Realtime playback</property>
+                                <property name="visible" bind-source="ConfigSidebar" bind-property="show-realtime-playback"/>
+                                <child>
+                                    <object class="AdwSpinRow" id="spin_row_realtime_clip_length">
+                                        <property name="title" translatable="true">Realtime clip length</property>
+                                        <property name="subtitle" translatable="true">Number of frames per clip in the realtime preview. Shorter clips lower latency (the AI can keep up more easily) but reduce temporal stability. Independent from the export/preview maximum clip duration.</property>
+                                        <signal name="notify::value"
+                                                handler="spin_row_realtime_clip_length_selected_callback"/>
+                                        <property name="adjustment">
+                                            <object class="GtkAdjustment">
+                                                <property name="lower">5</property>
+                                                <property name="upper">120</property>
+                                                <property name="value">30</property>
+                                                <property name="step-increment">5</property>
+                                            </object>
+                                        </property>
+                                    </object>
+                                </child>
+                                <child>
+                                    <object class="AdwSpinRow" id="spin_row_realtime_lookahead_frames">
+                                        <property name="title" translatable="true">Buffer window</property>
+                                        <property name="subtitle" translatable="true">How many frames ahead of the play position the AI is allowed to work. Larger values let the AI build up a bigger lead of restored frames during easy stretches to spend on hard ones, at the cost of more memory. Limited by available memory.</property>
+                                        <signal name="notify::value"
+                                                handler="spin_row_realtime_lookahead_frames_selected_callback"/>
+                                        <property name="adjustment">
+                                            <object class="GtkAdjustment">
+                                                <property name="lower">60</property>
+                                                <property name="upper">1800</property>
+                                                <property name="step-increment">30</property>
+                                            </object>
+                                        </property>
+                                    </object>
+                                </child>
+                                <child>
+                                    <object class="AdwActionRow">
+                                        <property name="title" translatable="true">Detection rate</property>
+                                        <property name="subtitle" translatable="true">Frames the detection model processes per second</property>
+                                        <child type="suffix">
+                                            <object class="GtkLabel" id="label_diagnostics_detector_fps">
+                                                <property name="valign">center</property>
+                                                <property name="label">–</property>
+                                                <style>
+                                                    <class name="numeric"/>
+                                                    <class name="dim-label"/>
+                                                </style>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </child>
+                                <child>
+                                    <object class="AdwActionRow">
+                                        <property name="title" translatable="true">Restoration rate</property>
+                                        <property name="subtitle" translatable="true">Frames the restoration model processes per second</property>
+                                        <child type="suffix">
+                                            <object class="GtkLabel" id="label_diagnostics_restorer_fps">
+                                                <property name="valign">center</property>
+                                                <property name="label">–</property>
+                                                <style>
+                                                    <class name="numeric"/>
+                                                    <class name="dim-label"/>
+                                                </style>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </child>
+                                <child>
+                                    <object class="GtkBox">
+                                        <property name="orientation">vertical</property>
+                                        <property name="spacing">6</property>
+                                        <property name="margin-top">6</property>
+                                        <property name="margin-bottom">6</property>
+                                        <child>
+                                            <object class="GtkLabel">
+                                                <property name="label" translatable="true">Buffer window</property>
+                                                <property name="xalign">0</property>
+                                                <style>
+                                                    <class name="dim-label"/>
+                                                    <class name="caption"/>
+                                                </style>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="BufferBar" id="buffer_bar"/>
+                                        </child>
+                                    </object>
+                                </child>
+                                <child>
+                                    <object class="AdwActionRow">
+                                        <property name="title" translatable="true">AI hit rate</property>
+                                        <property name="subtitle" translatable="true">Share of frames shown from the AI model vs original fallback</property>
+                                        <child type="suffix">
+                                            <object class="GtkLabel" id="label_diagnostics_hit_rate">
+                                                <property name="valign">center</property>
+                                                <property name="label">–</property>
+                                                <style>
+                                                    <class name="numeric"/>
+                                                    <class name="dim-label"/>
+                                                </style>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </child>
+                                <child>
+                                    <object class="AdwActionRow">
+                                        <property name="title" translatable="true">Discarded frames</property>
+                                        <property name="subtitle" translatable="true">Restored frames the playhead passed before they could be shown</property>
+                                        <child type="suffix">
+                                            <object class="GtkLabel" id="label_diagnostics_discarded">
+                                                <property name="valign">center</property>
+                                                <property name="label">–</property>
+                                                <style>
+                                                    <class name="numeric"/>
+                                                    <class name="dim-label"/>
+                                                </style>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </child>
+                            </object>
+                        </child>
+                        <child>
+                            <object class="AdwPreferencesGroup">
                                 <property name="title" translatable="true">Playback</property>
                                 <property name="visible" bind-source="ConfigSidebar" bind-property="show-playback-section"/>
                                 <child>
@@ -96,38 +218,6 @@ SPDX-License-Identifier: AGPL-3.0
                                                 <property name="lower">0</property>
                                                 <property name="upper">30</property>
                                                 <property name="step-increment">2</property>
-                                            </object>
-                                        </property>
-                                    </object>
-                                </child>
-                                <child>
-                                    <object class="AdwSpinRow" id="spin_row_realtime_preheat_duration">
-                                        <property name="title" translatable="true">AI preheat lead</property>
-                                        <property name="subtitle" translatable="true">After seeking, the AI starts processing this many seconds ahead of the play position so restored frames are ready when playback reaches them. Higher values give the GPU more head start but show the original for longer after a seek. Tune to your hardware.</property>
-                                        <property name="visible" bind-source="ConfigSidebar" bind-property="show-realtime-preheat"/>
-                                        <signal name="notify::value"
-                                                handler="spin_row_realtime_preheat_duration_selected_callback"/>
-                                        <property name="adjustment">
-                                            <object class="GtkAdjustment">
-                                                <property name="lower">0</property>
-                                                <property name="upper">30</property>
-                                                <property name="step-increment">1</property>
-                                            </object>
-                                        </property>
-                                    </object>
-                                </child>
-                                <child>
-                                    <object class="AdwSpinRow" id="spin_row_realtime_lookahead_frames">
-                                        <property name="title" translatable="true">AI lookahead window</property>
-                                        <property name="subtitle" translatable="true">How many frames ahead of the play position the AI is allowed to work. Larger values let the AI build up a bigger lead of restored frames during easy stretches to spend on hard ones, at the cost of more memory. Limited by available memory.</property>
-                                        <property name="visible" bind-source="ConfigSidebar" bind-property="show-realtime-preheat"/>
-                                        <signal name="notify::value"
-                                                handler="spin_row_realtime_lookahead_frames_selected_callback"/>
-                                        <property name="adjustment">
-                                            <object class="GtkAdjustment">
-                                                <property name="lower">60</property>
-                                                <property name="upper">1800</property>
-                                                <property name="step-increment">30</property>
                                             </object>
                                         </property>
                                     </object>
@@ -401,76 +491,6 @@ SPDX-License-Identifier: AGPL-3.0
                                                 <signal name="clicked" handler="toggle_button_initial_view_export_callback"/>
                                                 <style>
                                                     <class name="flat"/>
-                                                </style>
-                                            </object>
-                                        </child>
-                                    </object>
-                                </child>
-                            </object>
-                        </child>
-                        <child>
-                            <object class="AdwPreferencesGroup">
-                                <property name="title" translatable="true">Diagnostics</property>
-                                <property name="visible" bind-source="ConfigSidebar" bind-property="show-diagnostics"/>
-                                <child>
-                                    <object class="AdwActionRow">
-                                        <property name="title" translatable="true">GPU processing rate</property>
-                                        <property name="subtitle" translatable="true">Restored frames produced per second</property>
-                                        <child type="suffix">
-                                            <object class="GtkLabel" id="label_diagnostics_fps">
-                                                <property name="valign">center</property>
-                                                <property name="label">–</property>
-                                                <style>
-                                                    <class name="numeric"/>
-                                                    <class name="dim-label"/>
-                                                </style>
-                                            </object>
-                                        </child>
-                                    </object>
-                                </child>
-                                <child>
-                                    <object class="AdwActionRow">
-                                        <property name="title" translatable="true">Ahead / behind</property>
-                                        <property name="subtitle" translatable="true">Processed frames relative to the playhead</property>
-                                        <child type="suffix">
-                                            <object class="GtkLabel" id="label_diagnostics_ahead_behind">
-                                                <property name="valign">center</property>
-                                                <property name="label">–</property>
-                                                <style>
-                                                    <class name="numeric"/>
-                                                    <class name="dim-label"/>
-                                                </style>
-                                            </object>
-                                        </child>
-                                    </object>
-                                </child>
-                                <child>
-                                    <object class="AdwActionRow">
-                                        <property name="title" translatable="true">AI hit rate</property>
-                                        <property name="subtitle" translatable="true">Share of frames shown from the AI model vs original fallback</property>
-                                        <child type="suffix">
-                                            <object class="GtkLabel" id="label_diagnostics_hit_rate">
-                                                <property name="valign">center</property>
-                                                <property name="label">–</property>
-                                                <style>
-                                                    <class name="numeric"/>
-                                                    <class name="dim-label"/>
-                                                </style>
-                                            </object>
-                                        </child>
-                                    </object>
-                                </child>
-                                <child>
-                                    <object class="AdwActionRow">
-                                        <property name="title" translatable="true">Discarded frames</property>
-                                        <property name="subtitle" translatable="true">Restored frames the playhead passed before they could be shown</property>
-                                        <child type="suffix">
-                                            <object class="GtkLabel" id="label_diagnostics_discarded">
-                                                <property name="valign">center</property>
-                                                <property name="label">–</property>
-                                                <style>
-                                                    <class name="numeric"/>
-                                                    <class name="dim-label"/>
                                                 </style>
                                             </object>
                                         </child>

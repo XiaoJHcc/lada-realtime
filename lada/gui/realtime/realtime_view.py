@@ -239,10 +239,14 @@ class RealtimeView(Gtk.Widget):
                 self.frame_restorer_options = FrameRestorerOptionsBuilder(self.frame_restorer_options).mosaic_detection_model_name(self._config.mosaic_detection_model).build()
         self._config.connect("notify::mosaic-detection-model", on_mosaic_detection_model)
 
-        def on_max_clip_duration(object, spec):
+        def on_realtime_clip_length(object, spec):
+            # Realtime uses its own clip length, not the shared max_clip_duration. Clip length
+            # changes the detector's clip grouping + queue sizing, so the pipeline must restart.
             if self._frame_restorer_options:
-                self.frame_restorer_options = FrameRestorerOptionsBuilder(self.frame_restorer_options).max_clip_length(self._config.max_clip_duration).build()
-        self._config.connect("notify::max-clip-duration", on_max_clip_duration)
+                self.frame_restorer_options = FrameRestorerOptionsBuilder(self.frame_restorer_options).max_clip_length(self._config.realtime_clip_length).build()
+            if self.pipeline_manager is not None:
+                self.pipeline_manager.set_realtime_clip_frames(self._config.realtime_clip_length)
+        self._config.connect("notify::realtime-clip-length", on_realtime_clip_length)
 
         def on_fp16_enabled(object, spec):
             if self._frame_restorer_options:
@@ -253,12 +257,6 @@ class RealtimeView(Gtk.Widget):
             if self._frame_restorer_options:
                 self.frame_restorer_options = FrameRestorerOptionsBuilder(self.frame_restorer_options).detect_face_mosaics(self._config.detect_face_mosaics).build()
         self._config.connect("notify::detect-face-mosaics", on_detect_face_mosaics)
-
-        def on_realtime_preheat_duration(object, spec):
-            if self.pipeline_manager is not None:
-                # Takes effect on the next (re)start/seek; we don't interrupt current playback.
-                self.pipeline_manager.set_preheat_duration(self._config.realtime_preheat_duration)
-        self._config.connect("notify::realtime-preheat-duration", on_realtime_preheat_duration)
 
         def on_realtime_lookahead_frames(object, spec):
             if self.pipeline_manager is not None:
@@ -428,7 +426,7 @@ class RealtimeView(Gtk.Widget):
         self.frame_restorer_options = FrameRestorerOptions(self.config.mosaic_restoration_model,
                                                            self.config.mosaic_detection_model, self.video_metadata,
                                                            self.config.device,
-                                                           self.config.max_clip_duration,
+                                                           self.config.realtime_clip_length,
                                                            self.config.show_mosaic_detections,
                                                            False,
                                                            self.config.fp16_enabled,
@@ -445,13 +443,13 @@ class RealtimeView(Gtk.Widget):
 
         if self.pipeline_manager:
             self.pipeline_manager.init_pipeline(self.video_metadata, None)
-            self.pipeline_manager.set_preheat_duration(self.config.realtime_preheat_duration)
+            self.pipeline_manager.set_realtime_clip_frames(self.config.realtime_clip_length)
             self.pipeline_manager.set_lookahead_frames(self.config.realtime_lookahead_frames)
         else:
             # min_thresh=0: no pre-buffering on either the video or audio queue (clock-driven)
             self.pipeline_manager = RealtimePipelineManager(self.frame_restorer_provider, 0, 1.0, self.config.mute_audio, self.config.subtitles_font_size)
             self.pipeline_manager.init_pipeline(self.video_metadata, None)
-            self.pipeline_manager.set_preheat_duration(self.config.realtime_preheat_duration)
+            self.pipeline_manager.set_realtime_clip_frames(self.config.realtime_clip_length)
             self.pipeline_manager.set_lookahead_frames(self.config.realtime_lookahead_frames)
             self.picture_video_player.set_paintable(self.pipeline_manager.paintable)
             self.pipeline_connection_handler_ids = [

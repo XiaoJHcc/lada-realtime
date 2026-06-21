@@ -343,23 +343,32 @@ msgstr "实时预览"
 msgid "Diagnostics"
 msgstr "故障诊断"
 
-msgid "AI preheat lead"
-msgstr "AI 预热提前量"
+msgid "Realtime playback"
+msgstr "实时播放"
 
-msgid "After seeking, the AI starts processing this many seconds ahead of the play position so restored frames are ready when playback reaches them. Higher values give the GPU more head start but show the original for longer after a seek. Tune to your hardware."
-msgstr "拖动进度后，AI 从播放位置往前这么多秒开始处理，使播放到达时去码帧已就绪。值越大，GPU 提前量越多，但拖动后看原片的时间也越长。请按你的硬件调整。"
+msgid "Realtime clip length"
+msgstr "实时切片帧数"
 
-msgid "AI lookahead window"
-msgstr "AI 超前窗口"
+msgid "Number of frames per clip in the realtime preview. Shorter clips lower latency (the AI can keep up more easily) but reduce temporal stability. Independent from the export/preview maximum clip duration."
+msgstr "实时预览中每个切片的帧数。切片越短延迟越低（AI 更容易跟上），但时间稳定性越弱。与导出/预览的最大切片帧数相互独立。"
+
+msgid "Buffer window"
+msgstr "缓冲窗口"
 
 msgid "How many frames ahead of the play position the AI is allowed to work. Larger values let the AI build up a bigger lead of restored frames during easy stretches to spend on hard ones, at the cost of more memory. Limited by available memory."
 msgstr "AI 允许在播放位置之前多少帧内工作。值越大，AI 能在简单片段囤积更多去码帧、留给困难片段消费，代价是占用更多内存。受可用内存限制。"
 
-msgid "GPU processing rate"
-msgstr "GPU 处理帧率"
+msgid "Detection rate"
+msgstr "检测帧率"
 
-msgid "Restored frames produced per second"
-msgstr "每秒产出的去码帧数"
+msgid "Frames the detection model processes per second"
+msgstr "检测模型每秒处理的帧数"
+
+msgid "Restoration rate"
+msgstr "修复帧率"
+
+msgid "Frames the restoration model processes per second"
+msgstr "修复模型每秒处理的帧数"
 
 msgid "Ahead / behind"
 msgstr "超前 / 落后"
