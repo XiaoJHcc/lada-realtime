@@ -39,4 +39,26 @@ def load_models(
     else:
         classes = None
     mosaic_detection_model = Yolo11SegmentationModel(mosaic_detection_model_path, device, classes=classes, conf=0.15, fp16=fp16)
+
+    # Pay the one-time CUDA/cuDNN init cost now (at model-load time, while the user is already
+    # waiting for the model to load) instead of on the first real clip. Without this the first
+    # BasicVSR++ forward is several times slower than steady state, which the realtime path
+    # reads as the AI failing to keep up -> it falls back to the original (and, with reposition
+    # on, repeatedly restarts and re-pays the cost). Best-effort: a warmup failure must not
+    # block model loading.
+    if hasattr(mosaic_restoration_model, "warmup"):
+        try:
+            mosaic_restoration_model.warmup()
+        except Exception as e:
+            logger.warning(f"restoration model warmup skipped: {e}")
+    # The YOLO detector already warms up batch=1 in its __init__; the realtime detector feeds
+    # batch_size=4, whose first inference can still trigger a cuDNN autotune. Warm that shape.
+    try:
+        import torch as _torch
+        dummy_batch = [_torch.randint(0, 256, (mosaic_detection_model.imgsz[0], mosaic_detection_model.imgsz[1], 3), dtype=_torch.uint8) for _ in range(4)]
+        preprocessed = mosaic_detection_model.preprocess(dummy_batch)
+        mosaic_detection_model.inference_and_postprocess(preprocessed, dummy_batch)
+    except Exception as e:
+        logger.warning(f"detection model batch warmup skipped: {e}")
+
     return mosaic_detection_model, mosaic_restoration_model, pad_mode

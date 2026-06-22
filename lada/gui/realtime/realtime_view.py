@@ -263,6 +263,13 @@ class RealtimeView(Gtk.Widget):
                 self.pipeline_manager.set_lookahead_frames(self._config.realtime_lookahead_frames)
         self._config.connect("notify::realtime-lookahead-frames", on_realtime_lookahead_frames)
 
+        def on_realtime_cold_start_clips(object, spec):
+            # Cold-start lead only affects the next cold start / seek start point, not the
+            # running pipeline, so no restart needed.
+            if self.pipeline_manager is not None:
+                self.pipeline_manager.set_cold_start_clips(self._config.realtime_cold_start_clips)
+        self._config.connect("notify::realtime-cold-start-clips", on_realtime_cold_start_clips)
+
     def seek_video(self, seek_position_ns):
         if self.seek_in_progress:
             return
@@ -445,12 +452,14 @@ class RealtimeView(Gtk.Widget):
             self.pipeline_manager.init_pipeline(self.video_metadata, None)
             self.pipeline_manager.set_realtime_clip_frames(self.config.realtime_clip_length)
             self.pipeline_manager.set_lookahead_frames(self.config.realtime_lookahead_frames)
+            self.pipeline_manager.set_cold_start_clips(self.config.realtime_cold_start_clips)
         else:
             # min_thresh=0: no pre-buffering on either the video or audio queue (clock-driven)
             self.pipeline_manager = RealtimePipelineManager(self.frame_restorer_provider, 0, 1.0, self.config.mute_audio, self.config.subtitles_font_size)
             self.pipeline_manager.init_pipeline(self.video_metadata, None)
             self.pipeline_manager.set_realtime_clip_frames(self.config.realtime_clip_length)
             self.pipeline_manager.set_lookahead_frames(self.config.realtime_lookahead_frames)
+            self.pipeline_manager.set_cold_start_clips(self.config.realtime_cold_start_clips)
             self.picture_video_player.set_paintable(self.pipeline_manager.paintable)
             self.pipeline_connection_handler_ids = [
                 self.pipeline_manager.connect("paintable-size-changed", lambda obj: GLib.idle_add(lambda: self.emit("window-resize-requested", self.pipeline_manager.paintable))),

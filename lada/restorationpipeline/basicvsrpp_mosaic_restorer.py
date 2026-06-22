@@ -9,6 +9,19 @@ class BasicvsrppMosaicRestorer:
         self.device: torch.device = torch.device(device)
         self.dtype = torch.float16 if fp16 else torch.float32
 
+    def warmup(self, num_frames: int = 8, size: int = 256):
+        """Run one dummy forward to pay the one-time CUDA/cuDNN init cost (kernel autotune,
+        lazy kernel compilation, allocator first big-block alloc) at model-load time instead
+        of on the first real clip. The realtime path is very sensitive to this: the first clip
+        after a (re)start must finish within the cold-start lead, or playback falls back to the
+        original until the AI catches up. The spatial shape (size x size x 3) matches the
+        cropped/resized clip the detector emits (MosaicDetector.clip_size, default 256). The
+        frame count only needs to exercise the temporal propagation (spynet forward+backward),
+        not match any real clip length, so a handful of frames is enough. Best-effort: callers
+        should not let a warmup failure block model loading."""
+        dummy = [torch.randint(0, 256, (size, size, 3), dtype=torch.uint8) for _ in range(num_frames)]
+        self.restore(dummy)
+
     def restore(self, video: list[ImageTensor], max_frames=-1) -> list[ImageTensor]:
         input_frame_count = len(video)
         input_frame_shape = video[0].shape

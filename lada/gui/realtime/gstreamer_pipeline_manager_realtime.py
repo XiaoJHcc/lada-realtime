@@ -95,6 +95,14 @@ class RealtimePipelineManager(PipelineManager):
         if appsrc is not None:
             appsrc.lookahead_frames = max(0, int(frames))
 
+    def set_cold_start_clips(self, clips: int):
+        """How many clips ahead of the playhead the AI restorer starts on cold start / seek.
+        The lead region plays the original until the AI catches up; larger values hide a bigger
+        cold-start cost at the price of more original-frame lead-in after each seek."""
+        appsrc = getattr(self, "frame_restorer_app_src", None)
+        if appsrc is not None:
+            appsrc.cold_start_clips = max(1, int(clips))
+
     def get_realtime_stats(self) -> dict | None:
         """Snapshot of realtime AI diagnostics + derived ahead/behind frame counts.
         Returns None if the appsrc isn't set up yet."""

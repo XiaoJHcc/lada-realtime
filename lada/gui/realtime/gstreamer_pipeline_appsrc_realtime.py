@@ -70,6 +70,15 @@ REALTIME_REPOSITION_ENABLED = False
 # system. Set False to bypass the gate for A/B testing.
 REALTIME_FRONTIER_GATE_ENABLED = True
 
+# Default clips ahead of the playhead the AI restorer starts on cold start / seek. The lead
+# region plays the original until the AI catches up. 2 (not 1) gives the first real clip's
+# cold-start latency + steady-state jitter room to land before the clock reaches it: one clip
+# to produce, one clip of slack. Models are warmed up at load time (see restorationpipeline
+# load_models), so the first clip runs near steady state; this lead absorbs the residual.
+# User-tunable per machine/video via config (realtime_cold_start_clips); this is the fallback
+# used before the view sets it.
+COLD_START_CLIPS_DEFAULT = 2
+
 
 class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
     GST_PLUGIN_NAME = 'realtimeframerestorerappsrc'
@@ -147,6 +156,11 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         # clip length (config realtime_clip_length), separate from max_clip_duration which drives
         # watch preview + CLI export. User tunable via config; set by the view before (re)start.
         self.clip_frames: int = 30
+
+        # Cold-start lead in clips: the AI restorer starts cold_start_clips * clip_frames ahead
+        # of the playhead on cold start / seek (see COLD_START_CLIPS_DEFAULT). User-tunable via
+        # config (realtime_cold_start_clips); set by the view before (re)start.
+        self.cold_start_clips: int = COLD_START_CLIPS_DEFAULT
 
         # Realtime lookahead/buffer window (frames): how far ahead of the playhead the frontier
         # gate lets the AI work, i.e. how big a lead of restored frames it may build during easy
@@ -265,14 +279,15 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
                 self.frame_restorer = self.frame_restorer_provider.get(
                     frame_restoration_queue_max_bytes=self._compute_frame_buffer_max_bytes())
                 self.passthrough_restorer = PassthroughFrameRestorer(self.video_metadata.video_file)
-                # Clip-based start: the AI restorer starts one clip AHEAD of the playhead so its
-                # frames are ready by the time the clock arrives. The passthrough (master beat /
-                # play position) starts exactly at start_ns -> the 0..clip region shows the
-                # original, then playback switches to AI output seamlessly. The clip the playhead
-                # currently sits in is abandoned (too late to serve). Clamped so we never start
-                # the AI past EOF.
+                # Clip-based start: the AI restorer starts cold_start_clips clips AHEAD of the
+                # playhead so its frames are ready by the time the clock arrives. The passthrough
+                # (master beat / play position) starts exactly at start_ns -> the lead region
+                # shows the original, then playback switches to AI output seamlessly. The clip the
+                # playhead currently sits in is abandoned (too late to serve). The lead is 2 clips
+                # (not 1) so the cold-start cost plus steady-state jitter has slack to absorb: one
+                # clip to produce + one clip of headroom. Clamped so we never start past EOF.
                 clip = max(1, int(self.clip_frames))
-                clip_ns = int(clip * self.frame_duration_ns)
+                clip_ns = int(clip * max(1, int(self.cold_start_clips)) * self.frame_duration_ns)
                 duration_ns = int(self.video_metadata.frames_count * self.frame_duration_ns)
                 ai_start_ns = min(start_ns + clip_ns, max(start_ns, duration_ns - 1))
                 self.frame_restorer.start(start_ns=ai_start_ns)

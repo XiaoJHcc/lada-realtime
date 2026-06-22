@@ -46,7 +46,8 @@ class Config(GObject.Object):
         'post_export_custom_command': '',
         'preview_buffer_duration': 0,
         'realtime_clip_length': 30,
-        'realtime_lookahead_frames': 300,
+        'realtime_cold_start_clips': 4,
+        'realtime_lookahead_frames': 180,
         'seek_preview_enabled': True,
         'show_mosaic_detections': False,
         'temp_directory': tempfile.gettempdir(),
@@ -70,6 +71,7 @@ class Config(GObject.Object):
         self._mute_audio = self._defaults['mute_audio']
         self._preview_buffer_duration = self._defaults['preview_buffer_duration']
         self._realtime_clip_length = self._defaults['realtime_clip_length']
+        self._realtime_cold_start_clips = self._defaults['realtime_cold_start_clips']
         self._realtime_lookahead_frames = self._defaults['realtime_lookahead_frames']
         self._seek_preview_enabled = self._defaults['seek_preview_enabled']
         self._show_mosaic_detections = self._defaults['show_mosaic_detections']
@@ -182,6 +184,17 @@ class Config(GObject.Object):
         if value == self._realtime_lookahead_frames:
             return
         self._realtime_lookahead_frames = value
+        self.save()
+
+    @GObject.Property()
+    def realtime_cold_start_clips(self):
+        return self._realtime_cold_start_clips
+
+    @realtime_cold_start_clips.setter
+    def realtime_cold_start_clips(self, value):
+        if value == self._realtime_cold_start_clips:
+            return
+        self._realtime_cold_start_clips = value
         self.save()
 
     @GObject.Property()
@@ -387,6 +400,7 @@ class Config(GObject.Object):
         self.post_export_custom_command = self._defaults['post_export_custom_command']
         self.preview_buffer_duration = self._defaults['preview_buffer_duration']
         self.realtime_clip_length = self._defaults['realtime_clip_length']
+        self.realtime_cold_start_clips = self._defaults['realtime_cold_start_clips']
         self.realtime_lookahead_frames = self._defaults['realtime_lookahead_frames']
         self.seek_preview_enabled = self._defaults['seek_preview_enabled']
         self.show_mosaic_detections = self._defaults['show_mosaic_detections']
@@ -422,6 +436,7 @@ class Config(GObject.Object):
             'post_export_custom_command': self._post_export_custom_command,
             'preview_buffer_duration': self._preview_buffer_duration,
             'realtime_clip_length': self._realtime_clip_length,
+            'realtime_cold_start_clips': self._realtime_cold_start_clips,
             'realtime_lookahead_frames': self._realtime_lookahead_frames,
             'seek_preview_enabled': self._seek_preview_enabled,
             'show_mosaic_detections': self._show_mosaic_detections,
