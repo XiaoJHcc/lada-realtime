@@ -8,66 +8,62 @@
   <em>A fork of <a href="https://codeberg.org/ladaapp/lada">lada</a> focused on true real-time mosaic removal during playback.</em>
 </p>
 
+<p align="center">
+  <em>原项目 <a href="https://codeberg.org/ladaapp/lada">lada</a> 的分支，主要优化使其更适合实时播放</em>
+</p>
+
 > [!WARNING]
-> **开发中 / Work in progress.** 时钟驱动的实时预览已基本可用:独立 Realtime 标签页,播放永不停顿,处理前沿闸门 + seek 预热让 AI 跟随播放头工作并在到点时无缝切到去码画面。仍未完成:GPU 纯算力不足的难段会回退原片,自适应降级(降分辨率 / 跳帧)尚未实现。
-> 如果你想要稳定的去码/导出功能,请直接使用 [上游 lada](https://codeberg.org/ladaapp/lada)。
+> **开发中 / Work in progress.**
 
-## 这个 fork 想做什么
+## 想做什么 / Motivation
 
-[lada](https://codeberg.org/ladaapp/lada) 是一个用 AI 去除/恢复打码（马赛克）成人视频（JAV）的工具。它的核心设计是**离线处理**：把整个视频跑一遍模型，**导出**成一个新文件，之后用任意播放器观看。它也带一个 GUI 实时预览，但那只是个预览 —— **没有为实时播放做优化**：当显卡跟不上时，播放器会**暂停并缓冲**，凑齐足够的帧再继续。尤其在拖动进度条（seek）跳到新片段后，模型需要重新累积多帧来降低时间维度上的闪烁，于是总会出现明显卡顿。
+[lada](https://github.com/ladaapp/lada) 是一个用 AI 去除马赛克的工具，原版为**离线处理**导出视频而设计，自带的预览功能**没有为实时播放做优化**，原项目如此陈述：To watch the restored video in real-time, you'll need a **powerful machine**.
 
-本 fork 想把这件事反过来做 —— **做一个真正的实时预览**：
+但 RTX 4080 难道还不够 powerful 吗，导出视频可以跑到 30-45 帧，明明有实时播放的潜力，但原版的缓冲速度实在难以用于观看视频。
 
-- **永不缓冲，播放进度优先（时钟驱动）**：以播放的墙上时钟为准，绝不为了等 AI 结果而停下来。
-- **显卡跟得上 → 显示去码结果**；**跟不上 → 直接播原片**，待 GPU 追上后再切回去码画面。
-- **自适应降级**：通过缩短时间窗口、降低推理分辨率等手段，动态地让 GPU 持续满足 ~30 帧/秒。
+该 Fork 并未优化模型本身，仅优化 AI 任务调度和前端视频播放策略，优先保证视频播放，再择机去除马赛克。
 
-这个方向的可行性来自一个观察：在导出（离线）模式下，一块 RTX 4080 可以跑到约 **90 帧/秒**，远高于常见的 30fps 视频帧率。这说明**吞吐量并不是瓶颈，延迟才是** —— 瓶颈在于时间维度模型必须先看到一整段连续帧（一个 clip）才能输出，而上游用「先缓冲一大段」来掩盖这个延迟。实时改造的核心，就是把「缓冲优先」换成「进度优先 + 降级回退」。
+---
 
-技术细节与改造涉及的具体文件，见 [CLAUDE.md](CLAUDE.md)。
+[lada](https://github.com/ladaapp/lada) is an AI mosaic-removal tool. The original is built for **offline export**, and its built-in preview is **not optimized for real-time playback** — as the upstream README puts it: To watch the restored video in real-time, you'll need a **powerful machine**.
 
-## 当前状态
+But isn't an RTX 4080 powerful enough? Export already runs at 30–45 fps, so the potential for real-time playback is clearly there — yet the upstream's buffer-first pacing makes it impractical for actually *watching* a video.
 
-- [x] 摸清上游架构与实时卡顿的根源（见 [CLAUDE.md](CLAUDE.md)）
-- [x] 时钟驱动的实时预览窗口（独立 Realtime 标签页，播放墙钟驱动、永不缓冲停顿）
-- [x] AI 帧 / 原片帧的动态切换（回退路径已通：AI 未就绪时回退原片，就绪后切回）
-- [x] 处理前沿闸门：AI 只处理播放头前方一段窗口，不再全速冲到片尾抢占 GPU
-- [x] seek 后预热提前量：落点先放原片，AI 提前预热，到点无缝切去码（不停顿、不跳点）
-- [x] 可调旋钮：AI 预热提前量（秒）/ AI 超前窗口（帧）/ 诊断仪表盘，均在 Realtime 设置页
-- [ ] 难段命中率（GPU 纯算力不足时仍会回退原片）
-- [ ] 自适应降级（降分辨率 / 跳帧推理）
+This fork doesn't touch the models themselves. It only reworks AI task scheduling and the front-end playback strategy: keep playback going first, remove mosaics when the GPU can keep up.
 
-## 从源码构建
+## 已做优化 / What's Done
 
-本 fork 沿用上游的构建方式（`uv` + 各平台依赖）。详见各平台安装指南：
+**实时播放：从「数据驱动」改成「时钟驱动」**
 
-- [Windows](docs/windows_install.md)
-- [Linux](docs/linux_install.md)
-- [macOS](docs/macOS_install.md)
+- **永不暂停**：原版的播放节奏由 AI 处理进度决定：每一帧都要等去码结果算完才显示，算不过来就暂停缓冲。本 fork 反过来，让播放永不暂停，如果该帧 AI 已准备好，就播放去码画面，否则回退到原画。
 
-最简路径（CLI，Windows + Nvidia，详见 Windows 指南）：
+> 所以依然需要强大的显卡，要不然还是会回退的。
 
-```powershell
-winget install --id Gyan.FFmpeg -e --source winget
-winget install --id Git.Git -e --source winget
-winget install --id astral-sh.uv -e --source winget
+---
 
-uv venv
-.\.venv\Scripts\Activate.ps1
-uv sync --extra nvidia            # 按显卡选：nvidia / nvidia-legacy / intel / cpu
+**Playback: data-driven → clock-driven**
 
-# 打补丁 + 下载 model_weights/ 里的模型权重（见 Windows 指南）
+- **Never pause**: Upstream's pacing is dictated by AI progress — every frame waits for its restoration to finish, and it pauses to buffer when it can't keep up. This fork inverts that: playback never stops; if the AI frame is ready it shows the restored image, otherwise it falls back to the original.
 
-lada-cli --input <input video path>
-```
+> So you still need a powerful GPU — otherwise it just keeps falling back to the original.
 
-GUI 还需要 GTK4/GStreamer 系统依赖（`build_gtk/`），随后用 `lada` 启动。实时预览的改造主要发生在 GUI，因此运行 GUI 是验证改动的前提。
+---
 
-## 与上游的关系
+**任务调度：只算「马上要看的」，且提前计算未来**
 
-本仓库是 [lada](https://codeberg.org/ladaapp/lada) 的个人 fork。上游主仓托管在 **Codeberg**（GitHub 为其镜像）。原项目的功能介绍、性能预期、Flatpak/Docker/Windows 预编译包等安装方式、训练与数据集制作等内容，请以上游 README 与文档为准。
+- **提前计算**：拖动进度条后，AI 直接跳过眼前帧，从「落点往后一小段」开始。先放一小段原片糊弄过去，等播放头走到时，AI 去码帧正好就绪，无缝切换。
+- **限制前沿**：修复原有调度下检测模型（YOLO）一直往前算下去的 BUG，改成只算修复模型（BasicVSR++）下一次任务所需的一小段。
+- **预热模型**：模型加载后先空跑一次，把显卡首次初始化的一次性开销在加载阶段付掉。
+- **减小窗口**：默认使用较低的片段窗口设置，提升响应速度，但时间稳定性下降。
 
-如果你想为**去码模型本身**或上游功能做贡献，请前往上游的 [Pull requests](https://codeberg.org/ladaapp/lada/pulls) 与 [Issue tracker](https://codeberg.org/ladaapp/lada/issues)。
+---
+
+**Scheduling: compute only what's about to be seen, and prefetch the future**
+
+- **Prefetch**: After a seek, the AI skips the frames right at the playhead and starts a short distance ahead. The original plays for that brief gap, and by the time the playhead catches up the restored frames are ready for a seamless switch.
+- **Bounded frontier**: Fixes the upstream behavior where the detector (YOLO) races ahead indefinitely; now it only processes the short window the restorer (BasicVSR++) needs for its next clip.
+- **Warmup**: Run a dummy pass right after loading so the GPU's one-time initialization cost is paid during load, not on the first real frame.
+- **Smaller window**: Default to a shorter clip window for faster response, at the cost of some temporal stability.
 
 ## License
 

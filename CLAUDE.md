@@ -9,25 +9,43 @@
 **本 fork 的目标**：重写 / 新建一个**真正的实时预览**窗口，调度模型从「数据驱动（每一帧都要等到 AI 处理完、不够就停下缓冲）」改为「**时钟驱动**（播放进度永不停顿；显卡跟得上就显示 AI 去码结果，跟不上就回退到原片或降分辨率，待显卡追上）」。详见 README 的 fork 意图。**该功能尚在开发中。**
 
 > **实时改造进度**：时钟驱动实时预览已基本成型 —— 独立路径在 `lada/gui/realtime/`(与 `lada/gui/watch/` 平级),含时钟驱动 appsrc、管线管理器、独立的 Realtime 标签页。播放墙钟驱动、永不缓冲停顿、AI 帧未就绪时回退原片。已落地的关键机制:
-> - **处理前沿闸门**(`MosaicDetector` / `FrameRestorer` 的 `set_processing_frontier`,**默认关闭** —— CLI 导出与 watch 不调用即等同上游行为):realtime appsrc 每推一帧驱动闸门,让 AI 只处理「播放头前方 N 帧」,避免 detector/YOLO 全速冲到片尾抢占 GPU、把算力浪费在会被丢弃的未来帧上。
-> - **AI 预热提前量**(config `realtime_preheat_duration`,秒,默认 4):seek 后 passthrough 从落点起播(先放原片),AI restorer 从「落点 + 预热秒数」开始,播放头到达时去码帧正好就绪 → 无缝切去码,**不停顿、不跳点**。
-> - **AI 超前窗口**(config `realtime_lookahead_frames`,帧,默认 300):闸门允许 AI 领先播放头的帧数 = 简单段可囤多少去码帧给难段消费。用帧数因为它与 clip 长度、内存挂钩、且 fps 不定。
+> - **处理前沿闸门**(`MosaicDetector` / `FrameRestorer` 的 `set_processing_frontier`,**默认关闭** —— CLI 导出与 watch 不调用即等同上游行为):realtime appsrc 每推一帧驱动闸门,让 AI 只处理「播放头前方 N 帧」,避免 detector/YOLO 全速冲到片尾抢占 GPU、把算力浪费在会被丢弃的未来帧上。realtime 用模块开关 `REALTIME_FRONTIER_GATE_ENABLED` 控制(默认 True)。
+> - **clip-based AI 调度 + 冷启动超前量**(取代旧的 `realtime_preheat_duration` 秒数模型):seek 后 passthrough 从落点起播(先放原片),AI restorer 从「落点 + `realtime_cold_start_clips` × `realtime_clip_length`」起,播放头到达时去码帧就绪 → 无缝切去码。落后时后台线程重定位(`REALTIME_REPOSITION_ENABLED`,**当前默认 False** —— 曾单独引起闪帧,待帧号修复后复测)。详见 memory `realtime-clip-scheduling`。
+> - **AI 超前窗口/缓冲窗口**(config `realtime_lookahead_frames`,帧,UI 名「Buffer window/缓冲窗口」,默认 180):闸门允许 AI 领先播放头的帧数 = 简单段可囤多少去码帧给难段消费。用帧数因为它与 clip 长度、内存挂钩、且 fps 不定。
+> - **模型预热**(`BasicvsrppMosaicRestorer.warmup`,在 `restorationpipeline/load_models` 加载后调用):dummy clip 跑一次 forward,把 CUDA/cuDNN 初始化(kernel 懒编译、allocator 首次大块分配)在加载期付清。**2026-06 实测:warmup(T=8) 已足够,clip0 forward ≈ clip1(无「首个满长 clip 特别慢」),加大 warmup_T 对首帧无改善** —— 即此机制确实生效,但不是冷启动延迟的来源。模型在 provider 缓存 → 只付一次。
+> - **帧号锚定真实 PTS**(`FrameRestorer.start` → `video_utils.first_decoded_frame_num_after_seek`):PyAV BACKWARD seek 回退到关键帧,旧代码把关键帧硬标成标称 start_frame → 帧号高估一个 GOP,污染进度条/闸门 → 整段丢弃。现按真实解码 pts 算 start_frame。CLI(`start_ns=0`)行为不变。
 > - **输出队列可配**(`FrameRestorer(frame_restoration_queue_max_bytes=...)`,默认 512MB = 上游;realtime 按窗口放大并封顶 3GB 主机内存):去码帧是 CPU tensor,放大占内存不占显存。
-> - **诊断卡片**(realtime 设置页,`ConfigSidebar.show_diagnostics` 门控):GPU 处理帧率 / 超前·落后帧数 / AI 命中率 / 丢弃帧数,作为调参仪表盘。
+> - **诊断卡片**(realtime 设置页「Realtime playback/实时播放」组,`ConfigSidebar.show_realtime_playback` 门控):检测/修复帧率(按批/clip 计时,reposition 不清零) / 缓冲窗口横条(`BufferBar`) / AI 命中率 / 丢弃帧数,作为调参仪表盘。
 >
 > `lada/gui/watch/` 下的上游 buffer-first 路径**完全不动**,作为对照保留。
 > 下面「去码管线数据流」「卡顿根源」「GUI 现有应对方式」描述的是**上游 watch 路径**的架构 —— 仍然准确,且是实时路径复用/对照的基础。
 
 ### 实时改造:待解决问题(下次从这里继续)
 
+> **2026-06 性能实测**:用 `test_video.mp4`(1080p h264 30fps)+ 离线驱动真实 `FrameRestorer`(脚本 `scripts/realtime_coldstart_profile.py`、`scripts/degrade_knob_probe.py`,模拟播放头驱动 frontier gate,5 个 seek 点取均值)做了一轮拆解。**多个「听起来合理」的方向被实测否掉,以下表格封死无效方向,避免重走**。关键背景数:4080 + fp16 + clip_size 256 + basicvsrpp-v1.2,VSR restorer **独占** GPU 时 forward ≈ **62fps**;与 YOLO detector **共享**(detector_lead=2*clip,即现状)时 restorer 实测 forward ≈ **45fps** → **YOLO 争用吃掉约 27% restorer 吞吐**。冷启动首帧延迟:clip30 ≈ 2.3s,clip15 ≈ 1.9s。
+
+| 方向 | 状态 | 实测依据 |
+|---|---|---|
+| **warmup 形状对齐真实 clip 长度** | ❌ 无效 | clip0 forward ≈ clip1(634 vs 670ms),无「首个满长 clip 特别慢」的一次性成本。warmup_T=8→30 对首帧无改善。当前 warmup(T=8)已足够付清 CUDA 初始化。 |
+| **detector_lead 2*clip→1*clip** | ❌ 净亏 | forward-fps 升到 60(GPU 少被抢),但 **delivered(墙钟交付)从 45 掉到 40fps** —— detector 只领先 1 个 clip,restorer 在 clip 边界空等 detector。2*clip 是接近最优的流水线缓冲,**不能降**。 |
+| **VSR clip_size 降到 256 以下** | ❌ **跑不了** | basicvsrpp-v1.2 内部 4× 下采样,要求 low-res ≥ 64 → 输入 < 256 直接 assert 失败(224→56<64)。**CLAUDE.md 旧版「256→192 省 44%」对当前模型不成立**。要降需换模型/重训,非调参。 |
+| **YOLO 降 imgsz** | ⚠️ 收益小且非单调 | 640/512/384/320 → 530/463/321/338 fps。YOLO 单体本就 530fps(远超 30fps 需求),瓶颈是它**占用 GPU 时间片**而非算得慢;降 imgsz 省的卷积时间被固定的 NMS+process_mask 后处理淹没。 |
+| **YOLO 挪到核显(UHD 770)释放 4080** | ❌ 高风险净亏(未实测,强推理) | UHD 770 ≈ 0.7 TFLOPS vs 4080 ≈ 49;且整段 NMS/process_mask 后处理在 detector device 上。iGPU 几乎确定 < 30fps 检测 → detector 变瓶颈 → 落入上面 detector_lead 同款空等陷阱,比现状更差。 |
+| **冷启动短 clip 爬坡** | ✅ 有效、零稳态代价 | clip15 首帧 1.9s vs clip30 2.3s;且 clip15/clip30 稳态交付吞吐相当(均 ~45fps),**无 spynet 短 clip 惩罚**(旧版担心的混淆变量已排除)。 |
+| **YOLO 跳帧 / 稀疏检测** | ❓ **唯一未验证的高潜力项** | 逻辑:detector forward 次数 ÷N,直接减少 4080 占用 → 把 restorer 从 45 推向 62(上限 +27%)。马赛克区域帧间移动小,复用 mask 理论几乎不掉质量。**收益上限 = 那 27%,需实测跳帧后交付吞吐 + 质量**。 |
+
 按优先级,下次开工从这里接:
 
-1. **预热提前量的单位矛盾(待设计)**:`realtime_preheat_duration` 现在是**墙钟秒**(seek 后看多久原片,对用户是秒的体验)。但预热的本质 = 「AI 处理完这段帧要多久」,取决于**帧数**:同样 4 秒,60fps 要处理 240 帧、30fps 只要 120 帧,高帧率视频更难在固定秒数内预热完 → 固定秒数在高帧率视频上预热不足、到点切去码时 AI 还没准备好。两个维度(用户感知的秒 vs 处理负载的帧)耦合,**怎么设计待定**。候选思路:预热量按帧算(`preheat_frames`),UI 仍给用户展示等效秒数(用 fps 换算显示);或预热同时受「秒下限」和「帧下限」双重约束。需要先想清楚再动。
-2. **难段命中率(纯算力不足)**:GPU 单帧算力跟不上时,连续马赛克难段仍会回退原片。三旋钮(预热/超前窗口/队列)只能摊平,不能凭空造算力。
-3. **自适应降级(未实现)**:降推理分辨率(`clip_size`,检测器默认 256)、跳帧推理(处理稀疏帧 + 复用)、动态缩短 `max_clip_length` —— 用质量换吞吐,让 GPU 在难段也能跟上实时。这是解决 2 的正路。
-4. **统一解码源(优化项)**:realtime 现在 passthrough 与 AI 源各自 `VideoReader` 解码同一文件(两遍解码)。可考虑单解码源 + 共享。
+1. **难段稳态瓶颈 = YOLO 与 restorer 共享 4080 的争用(已重新定性)**:旧版写的「难段撞 30fps 硬墙、余量≈0」**基于未启用 gate 的失真测量,已撤回**。真实图景:restorer 独占可达 62fps,共享降到 45fps。瓶颈不是 VSR 物理算力不足,而是 detector 占用了约 27% 的 GPU 时间。**正路是 #2 的 YOLO 跳帧**(把这 27% 要回来),而非降 VSR 分辨率(跑不了)或挪 iGPU(净亏)。
+2. **YOLO 跳帧/稀疏检测(未实现,提稳态吞吐的唯一活路)**:detector 隔 N 帧跑一次推理,中间帧复用上一次的 mask/box。需实测:跳帧 N=2/3 后 restorer 交付吞吐能否从 45 抬向 60、对 clip 边界/scene 聚合的影响、以及跳帧对检测质量的实际损失(马赛克移动小,理论可接受)。改动点在 `MosaicDetector._frame_feeder_worker` / `_frame_detector_worker` 的逐帧检测逻辑。
+3. **冷启动短 clip 爬坡(已验证有效,可直接做)**:restorer 启动后前 N 个 clip 用较短的 max_clip_length(如 15),之后恢复到 `realtime_clip_length`,首帧从 ~2.3s 压到 ~1.9s,零稳态代价。改动点在 `MosaicDetector._create_clips_for_completed_scenes` 让 max_clip_length 在冷启动期递增;只走 realtime,CLI/watch 不受影响。
+4. **reposition 复测(挂起)**:自动重定位 `REALTIME_REPOSITION_ENABLED` 当前默认 False —— 它曾单独引起「闪一帧别处画面」。帧号已锚定真实 PTS、模型已预热后,理论上重启的 seek 落点也对齐了,需开回 True 单独验证是否还闪/还反复失败。
+5. **统一解码源(优化项)**:realtime 现在 passthrough 与 AI 源各自 `VideoReader` 解码同一文件(两遍解码)。可考虑单解码源 + 共享。
+
+> **关于 `first_decoded_frame_num_after_seek`(成本 C)**:每次 seek 持锁同步额外 open+seek+decode 一帧只为算 start_frame,实测 ~53ms/seek。不是冷启动主因,但纯加在关键路径、可白赚(让 feeder 解出首帧后回填帧号)。优先级低于 #2/#3。
 
 下面「去码管线数据流」等小节描述的是上游 watch 路径架构,仍准确,是实时路径复用/对照的基础。
+
 
 ## 技术栈
 
@@ -48,15 +66,15 @@ lada/
   gui/                     GTK4 GUI
     main.py, application.py, window.py
     frame_restorer_provider.py   ★ 模型加载/缓存；构造 FrameRestorer；含 PassthroughFrameRestorer
-    config/                侧边栏设置（device / model / max_clip_duration / preview_buffer_duration / realtime_preheat_duration / realtime_lookahead_frames 等）
+    config/                侧边栏设置（device / model / max_clip_duration / preview_buffer_duration / realtime_clip_length / realtime_cold_start_clips / realtime_lookahead_frames 等）
     watch/                 ★ 上游 buffer-first 预览窗口（保留作对照，不动）
       gstreamer_pipeline_appsrc.py    ★ FrameRestorerAppSrc：把 AI 帧推进 GStreamer
       gstreamer_pipeline_manager.py   ★ 整条 GStreamer 管线 + 缓冲队列策略
       watch_view.py                   ★ 播放/暂停/seek UI 逻辑 + 缓冲自适应
       timeline.py, seek_preview_popover.py, overlay_elements_controller.py
     realtime/              ★★ 时钟驱动实时预览（本 fork 主战场，与 watch/ 平级）
-      gstreamer_pipeline_appsrc_realtime.py  ★★ RealtimeFrameRestorerAppSrc：时钟驱动推帧 + passthrough 回退 + 处理前沿/预热/超前窗口 + 诊断埋点
-      gstreamer_pipeline_manager_realtime.py ★★ RealtimePipelineManager：无 min-threshold 缓冲，暴露诊断/预热/窗口 setter
+      gstreamer_pipeline_appsrc_realtime.py  ★★ RealtimeFrameRestorerAppSrc：时钟驱动推帧 + passthrough 回退 + 处理前沿/clip-based 调度/冷启动超前量/超前窗口 + 诊断埋点
+      gstreamer_pipeline_manager_realtime.py ★★ RealtimePipelineManager：无 min-threshold 缓冲，暴露诊断/clip/冷启动/窗口 setter
       realtime_view.py                ★★ Realtime 标签页 UI（复用 watch 的 overlay/seek-preview，精简缓冲逻辑）
     export/                导出页面 UI
   restorationpipeline/     ★★★ 去码核心管线（CLI 导出与两个预览路径共用）
@@ -101,7 +119,7 @@ model_weights/             模型权重（仓库内只有 *.license 占位，真
 
 1. **Clip 必须凑够才能修复**（`mosaic_detector.py:243` `_create_clips_for_completed_scenes`）：一段连续马赛克区域（`Scene`）只有在「**场景结束** / **达到 `max_clip_length`（默认 180 帧 ≈ 6s@30fps）** / **EOF**」时，才会被打包成 `Clip` 送去修复。
 2. **BasicVSR++ 一次吃整段**（`basicvsrpp_mosaic_restorer.py: restore`）：clip 越长，时间维度越稳（闪烁越少），但首帧延迟越大。
-3. **`_frame_restoration_worker` 阻塞等待**（`frame_restorer.py:329`）：若当前帧有马赛克，必须等到「覆盖该帧的 clip」检测完 *并* 修复完才能输出。
+3. **`_frame_restoration_worker` 阻塞等待**（`frame_restorer.py` 的 `_clip_buffer_contains_all_cips_needed_for_current_restoration` while 循环，约 line 383）：若当前帧有马赛克，必须等到「覆盖该帧的 clip」检测完 *并* 修复完才能输出。
 
 → **seek 之后**：检测器从零开始累积最多 `max_clip_length` 帧，跑完整段 BasicVSR++，第一帧才出来。这就是「跳片段后总卡顿」。
 
