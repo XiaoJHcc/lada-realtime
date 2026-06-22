@@ -106,14 +106,28 @@ class FrameRestorer:
             assert self.frame_restoration_queue.empty()
 
             self.start_ns = start_ns
-            self.start_frame = video_utils.offset_ns_to_frame_num(self.start_ns, self.video_meta_data.video_fps_exact)
+            # Anchor start_frame to the REAL frame the decoder lands on after seek. PyAV seeks
+            # BACKWARD to the nearest keyframe, so the first decoded frame is usually earlier
+            # than start_ns; both this worker and the detector label that first frame as
+            # start_frame and count +1 from there. Deriving it from the nominal offset (the old
+            # behaviour) leaves a per-seek GOP offset between this frame number and the real
+            # pts, which the realtime frontier gate then mis-compares against the (real)
+            # playhead -> AI production cut short. Computing it from the first decoded pts puts
+            # the frame numbering back on the real-pts coordinate system. CLI/watch never read
+            # these frame numbers, so their behaviour is unchanged.
+            if start_ns > 0:
+                self.start_frame = video_utils.first_decoded_frame_num_after_seek(
+                    self.video_meta_data.video_file, start_ns,
+                    self.video_meta_data.time_base, self.video_meta_data.video_fps_exact)
+            else:
+                self.start_frame = video_utils.offset_ns_to_frame_num(self.start_ns, self.video_meta_data.video_fps_exact)
             self.stop_requested = False
             self._output_frame_pos = self.start_frame
 
             self.frame_restoration_thread = PipelineThread(name="frame restoration worker", target=self._frame_restoration_worker, error_handler=self._on_worker_thread_error)
             self.clip_restoration_thread = PipelineThread(name="clip restoration worker", target=self._clip_restoration_worker, error_handler=self._on_worker_thread_error)
 
-            self.mosaic_detector.start(start_ns=start_ns)
+            self.mosaic_detector.start(start_ns=start_ns, start_frame=self.start_frame)
             self.clip_restoration_thread.start()
             self.frame_restoration_thread.start()
 

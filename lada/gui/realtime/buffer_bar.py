@@ -43,7 +43,9 @@ class BufferBar(Gtk.Widget):
         self._ready_start_frame = 0
         self._ready_end_frame = 0
         self.set_hexpand(True)
-        self.set_size_request(-1, 20)
+        # Min width so the bar stays usable as an AdwActionRow suffix; hexpand lets it grow
+        # into the right half of the row. Height matches the other rows' suffix labels.
+        self.set_size_request(160, 20)
 
     def update_buffer(self, window_frames: int, playhead_frame: int,
                       ready_start_frame: int, ready_end_frame: int):

@@ -188,6 +188,30 @@ def get_video_meta_data(path: str) -> VideoMetadata:
 def offset_ns_to_frame_num(offset_ns, video_fps_exact):
     return int(Fraction(offset_ns, 1_000_000_000) * video_fps_exact)
 
+def pts_to_frame_num(pts, time_base, video_fps_exact):
+    """Convert a decoded frame's raw pts (in time_base units) to a frame number, matching
+    EXACTLY how the appsrc derives a GStreamer buffer's offset for the same pts
+    (pts -> ns with int truncation -> frame_num). Using the same two-step rounding guarantees
+    a frame decoded by the AI pipeline lands on the same integer frame number as the
+    passthrough side computes for that identical pts -> the playhead and the AI output
+    position share one coordinate system."""
+    frame_timestamp_ns = int((pts * time_base) * 1_000_000_000)
+    return offset_ns_to_frame_num(frame_timestamp_ns, video_fps_exact)
+
+def first_decoded_frame_num_after_seek(video_file, start_ns, time_base, video_fps_exact):
+    """Open + seek + decode a single frame to learn the real frame number the decoder lands
+    on. PyAV's seek is BACKWARD: it rewinds to the nearest keyframe at-or-before start_ns, so
+    the first decoded frame is usually EARLIER than the requested offset. The pipeline labels
+    that first frame as start_frame and counts +1 from there, so start_frame must be the
+    keyframe's real frame number (not the requested one) or every downstream frame number is
+    offset by a per-seek GOP delta. Falls back to the requested offset if the stream is empty."""
+    with VideoReader(video_file) as vr:
+        if start_ns > 0:
+            vr.seek(start_ns)
+        for _frame, pts in vr.frames():
+            return pts_to_frame_num(pts, time_base, video_fps_exact)
+    return offset_ns_to_frame_num(start_ns, video_fps_exact)
+
 def write_frames_to_video_file(frames: list[Image], output_path, fps: int | float | Fraction, codec='x264', preset='medium', crf=None):
     assert frames[0].ndim == 3
     width = frames[0].shape[1]

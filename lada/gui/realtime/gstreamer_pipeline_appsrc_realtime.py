@@ -53,6 +53,23 @@ logging.basicConfig(level=LOG_LEVEL)
 # REALTIME_FRAME_BUFFER_MAX_BYTES so high-res videos don't exhaust memory.
 REALTIME_FRAME_BUFFER_MAX_BYTES = 3 * 1024 * 1024 * 1024  # 3 GiB host RAM ceiling
 
+# Experiment toggle. When False, the AI restorer is started ONCE (one clip ahead of the
+# playhead) and left to run sequentially; if it falls behind, the play loop simply falls
+# back to passthrough instead of tearing it down and re-aiming. Set False to isolate
+# whether the reposition machinery is the cause of the "buffer bar shows ready but every
+# frame falls back to the original" + one-frame flash symptoms. Flip back to True to
+# restore clip-based re-aiming.
+REALTIME_REPOSITION_ENABLED = False
+
+# Experiment toggle. When False, the playhead-based processing-frontier gate is NOT applied,
+# so the AI pipeline is bounded only by output-queue backpressure (sized to ~window+clip
+# frames) instead of by a frame-number comparison. The gate compares the detector's frame
+# number against a playhead-derived frontier; this is only correct now that the AI pipeline's
+# frame numbering is anchored to real decoded PTS (FrameRestorer.start ->
+# first_decoded_frame_num_after_seek), so both sides of the comparison share one coordinate
+# system. Set False to bypass the gate for A/B testing.
+REALTIME_FRONTIER_GATE_ENABLED = True
+
 
 class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
     GST_PLUGIN_NAME = 'realtimeframerestorerappsrc'
@@ -522,6 +539,12 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
             fr = self.frame_restorer
         if fr is None:
             return
+        if not REALTIME_FRONTIER_GATE_ENABLED:
+            # Gate disabled (A/B): let the AI run unbounded except for output-queue
+            # backpressure (queue sized to ~window+clip). Avoids the mislabeled-frame-number
+            # vs real-frame-number comparison that cuts production short after a seek.
+            fr.set_processing_frontier(None)
+            return
         # Let the AI work up to playhead + window, but no further. Window (user-configured
         # "Buffer window" in frames) is clamped to:
         #   >= 2*clip   so a clip can always fill ahead of the playhead (one clip to fill +
@@ -549,6 +572,8 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         Anti-thrash relies on two things, not a timer: (a) a reposition in progress nulls
         frame_restorer so this returns immediately, and (b) the 2*clip headroom lands the new
         output head well ahead of the playhead, so it won't instantly re-trigger."""
+        if not REALTIME_REPOSITION_ENABLED:
+            return
         if self._reposition_in_progress:
             return
         fr = self.frame_restorer

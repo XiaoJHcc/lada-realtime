@@ -209,12 +209,19 @@ class MosaicDetector:
         self._frontier_frame: int | None = None
         self._frontier_cond = threading.Condition()
 
-    def start(self, start_ns):
+    def start(self, start_ns, start_frame=None):
         assert self.frame_feeder_queue.empty()
         assert self.inference_queue.empty()
 
         self.start_ns = start_ns
-        self.start_frame = video_utils.offset_ns_to_frame_num(self.start_ns, self.video_meta_data.video_fps_exact)
+        # start_frame is the REAL frame number the decoder lands on after a BACKWARD seek
+        # (the keyframe at-or-before start_ns), supplied by FrameRestorer so the detector and
+        # the restoration worker count from an identical base. Falling back to the nominal
+        # offset only happens when no override is given (no realtime path does that).
+        if start_frame is not None:
+            self.start_frame = start_frame
+        else:
+            self.start_frame = video_utils.offset_ns_to_frame_num(self.start_ns, self.video_meta_data.video_fps_exact)
         self.stop_requested = False
 
         self.frame_detector_thread = PipelineThread(name="frame detector worker", target=self._frame_detector_worker, error_handler=self.error_handler)
