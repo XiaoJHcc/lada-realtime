@@ -27,7 +27,8 @@
 | 方向 | 状态 | 实测依据 |
 |---|---|---|
 | **warmup 形状对齐真实 clip 长度** | ❌ 无效 | clip0 forward ≈ clip1(634 vs 670ms),无「首个满长 clip 特别慢」的一次性成本。warmup_T=8→30 对首帧无改善。当前 warmup(T=8)已足够付清 CUDA 初始化。 |
-| **detector_lead 2*clip→1*clip** | ❌ 净亏 | forward-fps 升到 60(GPU 少被抢),但 **delivered(墙钟交付)从 45 掉到 40fps** —— detector 只领先 1 个 clip,restorer 在 clip 边界空等 detector。2*clip 是接近最优的流水线缓冲,**不能降**。 |
+| **detector_lead 2*clip→1*clip** | ❌ 净亏 | forward-fps 升到 60(GPU 少被抢),但 **delivered(墙钟交付)从 45 掉到 40fps** —— detector 只领先 1 个 clip,restorer 在 clip 边界空等 detector。1*clip 稳态净亏,不可用。 |
+| **detector_lead 改 1.2*clip(冷启动甜点)** | ✅ 已落地 | clip_T=30 实测(n=5 配对):冷启动首帧 2.0x≈2227ms→**1.2x≈2131ms**(稳赚 ~96ms,所有 seek 一致、区间不重叠),1.0x 又涨回 ~2220(空等)。稳态 delivered 2.0x=40.7 vs 1.2x=39.0(差落在噪声内,t≈1.3);2.0x vs 1.0x 才是真差(~3.5fps)。默认已改 [frame_restorer.py:97](lada/restorationpipeline/frame_restorer.py#L97) `round(1.2*max_clip_length)`,硬下界 ≥max_clip_length,只走 realtime。 |
 | **VSR clip_size 降到 256 以下** | ❌ **跑不了** | basicvsrpp-v1.2 内部 4× 下采样,要求 low-res ≥ 64 → 输入 < 256 直接 assert 失败(224→56<64)。**CLAUDE.md 旧版「256→192 省 44%」对当前模型不成立**。要降需换模型/重训,非调参。 |
 | **YOLO 降 imgsz** | ⚠️ 收益小且非单调 | 640/512/384/320 → 530/463/321/338 fps。YOLO 单体本就 530fps(远超 30fps 需求),瓶颈是它**占用 GPU 时间片**而非算得慢;降 imgsz 省的卷积时间被固定的 NMS+process_mask 后处理淹没。 |
 | **YOLO 挪到核显(UHD 770)释放 4080** | ❌ 高风险净亏(未实测,强推理) | UHD 770 ≈ 0.7 TFLOPS vs 4080 ≈ 49;且整段 NMS/process_mask 后处理在 detector device 上。iGPU 几乎确定 < 30fps 检测 → detector 变瓶颈 → 落入上面 detector_lead 同款空等陷阱,比现状更差。 |

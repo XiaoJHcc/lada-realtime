@@ -91,10 +91,20 @@ class FrameRestorer:
         # We additionally clamp the detector to the AI OUTPUT position (the frame restoration
         # worker, the real clip consumer) plus a small lead, so the detector only runs just ahead
         # of what the restorer is about to need. Lead must be >= max_clip_length so the clip
-        # covering the current output frame can always complete; 2x leaves one clip of slack.
+        # covering the current output frame can always complete.
+        #
+        # Lead multiplier (units of max_clip_length), profiled on 1080p30 + 4080, clip_T=30,
+        # n=5 seek points (scripts/realtime_coldstart_profile.py):
+        #   2.0x: cold-start first frame ~2227ms, steady delivered ~40.7fps (steady optimum)
+        #   1.2x: cold-start first frame ~2131ms, steady delivered ~39.0fps
+        #   1.0x: cold-start first frame ~2220ms, steady delivered ~37.2fps (restorer stalls
+        #         at the clip boundary waiting on the detector — net loss)
+        # 1.2x is the cold-start sweet spot (~96ms faster first frame, significant across all
+        # seeks); the steady-state delta vs 2.0x is within run-to-run noise (mixed signs, n=5).
+        # We default to 1.2x to win the first-frame latency at no measurable steady cost.
         self._playhead_frontier: int | None = None
         self._output_frame_pos: int = 0
-        self._detector_lead = max(1, 2 * self.max_clip_length)
+        self._detector_lead = max(self.max_clip_length, round(1.2 * self.max_clip_length))
         self._frontier_lock = threading.Lock()
 
     def start(self, start_ns=0):
