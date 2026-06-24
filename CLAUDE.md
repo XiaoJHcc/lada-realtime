@@ -16,6 +16,7 @@
 > - **帧号锚定真实 PTS**(`FrameRestorer.start` → `video_utils.first_decoded_frame_num_after_seek`):PyAV BACKWARD seek 回退到关键帧,旧代码把关键帧硬标成标称 start_frame → 帧号高估一个 GOP,污染进度条/闸门 → 整段丢弃。现按真实解码 pts 算 start_frame。CLI(`start_ns=0`)行为不变。
 > - **输出队列可配**(`FrameRestorer(frame_restoration_queue_max_bytes=...)`,默认 512MB = 上游;realtime 按窗口放大并封顶 3GB 主机内存):去码帧是 CPU tensor,放大占内存不占显存。
 > - **诊断卡片**(realtime 设置页「Realtime playback/实时播放」组,`ConfigSidebar.show_realtime_playback` 门控):检测/修复帧率(按批/clip 计时,reposition 不清零) / 缓冲窗口横条(`BufferBar`) / AI 命中率 / 丢弃帧数,作为调参仪表盘。
+> - **TensorRT 加速 BasicVSR++**(`feat/trt-basicvsrpp` 分支,2026-06 移植 jasna 做法):把 BasicVSR++ 拆成 6 个 TRT 子引擎(4 loop_body 静态 batch=1 + preprocess + upsample 动态 batch),restorer **独占** GPU 时 forward 实测 **3–4x**(T=16 时 3.16x、T=60 时 4.47x,数值对齐 MAE≈0.001)。集成在 `BasicvsrppMosaicRestorer(split_forward=...)`,`load_models` 经 `_maybe_build_trt_split_forward` 装配;模块开关 env `LADA_BASICVSRPP_TRT`(默认 on)、引擎上界 `LADA_BASICVSRPP_TRT_MAX_CLIP`(默认 180)。非 cuda / 非 fp16 / 引擎缺失 / 编译失败**无缝回退 PyTorch**,对 CLI 与 watch 透明。引擎绑 GPU 架构/精度/clip 上界,首跑本地编译(已预编 `_b180`)、缓存进 `model_weights/<stem>_sub_engines/`,**不入库不跨机分发**。注意 3–4x 是 restorer 独占数,真实管线 detector(YOLO)争用会打折 —— 见下「待解决问题」。详见 `docs/trt_basicvsrpp_port_design.md` 与 memory `jasna-trt-acceleration-reference`。
 >
 > `lada/gui/watch/` 下的上游 buffer-first 路径**完全不动**,作为对照保留。
 > 下面「去码管线数据流」「卡顿根源」「GUI 现有应对方式」描述的是**上游 watch 路径**的架构 —— 仍然准确,且是实时路径复用/对照的基础。

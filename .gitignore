@@ -20,3 +20,14 @@ __pycache__/
 *.pyc
 *.mo
 *.ep
+# TensorRT sub-engines: GPU-architecture/precision/clip-size bound, compiled
+# locally on first run (see docs/trt_basicvsrpp_port_design.md). Never commit —
+# not cross-machine portable, and the upsample engine alone is ~480MB.
+model_weights/*_sub_engines/
+*.engine
+
+# TRT validation scratch
+scripts/trt_validate*.log
+
+# Local test media
+/test_video*.mp4

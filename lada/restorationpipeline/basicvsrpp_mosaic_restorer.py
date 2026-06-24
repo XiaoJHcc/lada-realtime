@@ -4,10 +4,15 @@ from lada.models.basicvsrpp.basicvsrpp_gan import BasicVSRPlusPlusGan
 from lada.utils import ImageTensor
 
 class BasicvsrppMosaicRestorer:
-    def __init__(self, model: BasicVSRPlusPlusGan, device: torch.device, fp16: bool):
+    def __init__(self, model: BasicVSRPlusPlusGan, device: torch.device, fp16: bool, split_forward=None):
         self.model = model
         self.device: torch.device = torch.device(device)
         self.dtype = torch.float16 if fp16 else torch.float32
+        # Optional TensorRT split forward (BasicVSRPlusPlusNetSplit). When set, restore()
+        # runs the compiled engines instead of self.model; otherwise the PyTorch model is
+        # used. self.model is always kept as the fallback (and so warmup/structure stay
+        # available). See lada/restorationpipeline/basicvsrpp_sub_engines.py.
+        self._split_forward = split_forward
 
     def warmup(self, num_frames: int = 8, size: int = 256):
         """Run one dummy forward to pay the one-time CUDA/cuDNN init cost (kernel autotune,
@@ -34,6 +39,11 @@ class BasicvsrppMosaicRestorer:
                     output = self.model(inputs=inference_view[:, i:i + max_frames])
                     result.append(output)
                 result = torch.cat(result, dim=1)
+            elif self._split_forward is not None:
+                # TensorRT path: the clip is already capped at the engine's max_clip_size
+                # upper bound, so no batching is needed here. split_forward takes the same
+                # (N,T,C,H,W) input and returns the same shape as self.model.
+                result = self._split_forward(inference_view)
             else:
                 result = self.model(inputs=inference_view)
 

@@ -1,4 +1,5 @@
 import logging
+import os
 
 import torch
 
@@ -7,6 +8,25 @@ from lada.models.yolo.yolo11_segmentation_model import Yolo11SegmentationModel
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=LOG_LEVEL)
+
+# ── TensorRT acceleration for BasicVSR++ (optional) ────────────────────────────
+# When enabled (and device is cuda + fp16), the BasicVSR++ restorer runs as 6
+# precompiled TensorRT sub-engines instead of the PyTorch model — ~3x restorer
+# throughput (see docs/trt_basicvsrpp_port_design.md). Engines are bound to the
+# GPU architecture / precision / clip-size upper bound and are compiled on first
+# use (a one-time, multi-minute, blocking step), then cached under
+# model_weights/<stem>_sub_engines/. Non-Nvidia / fp32 users never trigger this
+# and keep the PyTorch path unchanged.
+#
+# Default on for the realtime fork's purpose; set LADA_BASICVSRPP_TRT=0 to force
+# the PyTorch path (e.g. to skip the first-run compile, or when debugging).
+BASICVSRPP_TRT_ENABLED = os.environ.get("LADA_BASICVSRPP_TRT", "1") not in ("0", "false", "False", "")
+# Single fixed engine upper bound. Must be >= the largest clip ever fed: CLI
+# --max-clip-length and the GUI max_clip_duration both default to 180; realtime
+# uses shorter clips and feeds them to the same engine (its dynamic batch lower
+# bound is 3 for preprocess / 1 for upsample). Changing this triggers a recompile.
+BASICVSRPP_TRT_MAX_CLIP_SIZE = int(os.environ.get("LADA_BASICVSRPP_TRT_MAX_CLIP", "180"))
+
 
 def load_models(
     device: torch.device,
@@ -26,7 +46,8 @@ def load_models(
         from lada.models.basicvsrpp.inference import load_model
         from lada.restorationpipeline.basicvsrpp_mosaic_restorer import BasicvsrppMosaicRestorer
         _model = load_model(mosaic_restoration_config_path, mosaic_restoration_model_path, device, fp16)
-        mosaic_restoration_model = BasicvsrppMosaicRestorer(_model, device, fp16)
+        split_forward = _maybe_build_trt_split_forward(_model, mosaic_restoration_model_path, device, fp16)
+        mosaic_restoration_model = BasicvsrppMosaicRestorer(_model, device, fp16, split_forward=split_forward)
         pad_mode = 'zero'
     else:
         raise NotImplementedError()
@@ -62,3 +83,48 @@ def load_models(
         logger.warning(f"detection model batch warmup skipped: {e}")
 
     return mosaic_detection_model, mosaic_restoration_model, pad_mode
+
+
+def _maybe_build_trt_split_forward(model, mosaic_restoration_model_path: str, device: torch.device, fp16: bool):
+    """Compile (if needed) and load the BasicVSR++ TensorRT split forward.
+
+    Returns a BasicVSRPlusPlusNetSplit to run instead of the PyTorch model, or
+    None to keep the PyTorch path. None is returned whenever TRT is disabled,
+    the device isn't cuda, fp16 is off, or compilation/loading fails — in every
+    such case the caller falls back to the unchanged PyTorch model. A failure
+    here must never block model loading.
+    """
+    if not BASICVSRPP_TRT_ENABLED:
+        return None
+    if device.type != "cuda" or not fp16:
+        if device.type != "cuda":
+            logger.info("BasicVSR++ TRT disabled: device is %s, not cuda.", device.type)
+        else:
+            logger.info("BasicVSR++ TRT disabled: requires fp16.")
+        return None
+
+    try:
+        from lada.restorationpipeline.basicvsrpp_trt_compilation import basicvsrpp_startup_policy
+        from lada.restorationpipeline.basicvsrpp_sub_engines import create_split_forward
+
+        use_trt = basicvsrpp_startup_policy(
+            restoration_model_path=mosaic_restoration_model_path,
+            device=device, fp16=fp16, compile_basicvsrpp=True,
+            max_clip_size=BASICVSRPP_TRT_MAX_CLIP_SIZE, optimization_level=5,
+        )
+        if not use_trt:
+            logger.info("BasicVSR++ TRT engines unavailable; using PyTorch path.")
+            return None
+
+        split_forward = create_split_forward(
+            model, mosaic_restoration_model_path, device, fp16,
+            max_clip_size=BASICVSRPP_TRT_MAX_CLIP_SIZE,
+        )
+        if split_forward is None:
+            logger.warning("BasicVSR++ TRT engines reported present but failed to load; using PyTorch path.")
+            return None
+        logger.info("BasicVSR++ TensorRT split forward active (max_clip_size=%d).", BASICVSRPP_TRT_MAX_CLIP_SIZE)
+        return split_forward
+    except Exception as e:
+        logger.warning("BasicVSR++ TRT setup failed (%s); falling back to PyTorch path.", e)
+        return None
