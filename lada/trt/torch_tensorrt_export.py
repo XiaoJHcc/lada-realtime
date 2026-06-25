@@ -86,6 +86,13 @@ def compile_and_save_torchtrt_dynamo(
         device = inputs[0].device
     print(message)
     logger.info("%s", message)
+    # Also surface per-engine progress ("Compiling sub-engine i/6…") to whatever
+    # UI is driving the load (GUI spinner label). No-op if nobody registered.
+    try:
+        from lada.restorationpipeline.progress import report_load_progress
+        report_load_progress(message)
+    except Exception:  # noqa: BLE001 - progress reporting must never break compilation
+        pass
     with torch.cuda.device(device):
         trt_gm = torch_tensorrt.compile(
             module,

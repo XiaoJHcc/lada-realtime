@@ -250,6 +250,22 @@ SPDX-License-Identifier: AGPL-3.0
                                                         </style>
                                                     </object>
                                                 </child>
+                                                <child>
+                                                    <object class="GtkLabel" id="label_loading_status">
+                                                        <property name="label" translatable="true">Loading models…</property>
+                                                        <property name="halign">center</property>
+                                                        <property name="valign">start</property>
+                                                        <property name="vexpand">True</property>
+                                                        <property name="wrap">True</property>
+                                                        <property name="justify">center</property>
+                                                        <property name="margin-start">24</property>
+                                                        <property name="margin-end">24</property>
+                                                        <property name="margin-bottom">24</property>
+                                                        <style>
+                                                            <class name="dim-label"/>
+                                                        </style>
+                                                    </object>
+                                                </child>
                                             </object>
                                         </property>
                                     </object>

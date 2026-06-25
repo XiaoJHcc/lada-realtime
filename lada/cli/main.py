@@ -101,6 +101,7 @@ def setup_argparser() -> argparse.ArgumentParser:
     group_restoration.add_argument('--mosaic-restoration-model', type=str, default='basicvsrpp-v1.2', help=_('Name of detection model or path to model weights file. Use "--list-mosaic-restoration-models" to see what\'s available. (default: %(default)s)'))
     group_restoration.add_argument('--mosaic-restoration-config-path', type=str, default=None, help=_("Path to restoration model configuration file. You'll not have to set this unless you're training your own custom models"))
     group_restoration.add_argument('--max-clip-length', type=int, default=180, help=_('Maximum number of frames for restoration. Higher values improve temporal stability. Lower values reduce memory footprint. If set too low flickering could appear (default: %(default)s)'))
+    group_restoration.add_argument('--build-trt-engines', action='store_true', help=_("Precompile the TensorRT acceleration engines for the current GPU and exit. Run this once after installation so the first real playback/export doesn't block on a multi-minute compile. Requires an Nvidia GPU with FP16. (Nvidia only)"))
 
     group_detection = parser.add_argument_group(_('Mosaic Detection'))
     group_detection.add_argument('--mosaic-detection-model', type=str, default='v4-fast', help=_('Name of detection model or path to model weights file. Use "--list-mosaic-detection-models" to see what\'s available. (default: %(default)s)'))
@@ -151,6 +152,67 @@ def process_video_file(input_path: str, output_path: str, temp_dir_path: str, de
         if os.path.exists(video_tmp_file_output_path):
             os.remove(video_tmp_file_output_path)
 
+def _build_trt_engines_and_exit(args):
+    """Precompile the BasicVSR++ TensorRT sub-engines for the current GPU, then exit.
+
+    A list-and-exit style action (like --list-*): does not require --input. Lets
+    users move the multi-minute first-run compile to an explicit install step so
+    the first real playback/export doesn't block. Uses the SAME engine clip-size
+    upper bound the runtime loads (LADA_BASICVSRPP_TRT_MAX_CLIP / default 180),
+    NOT --max-clip-length, so the engines built here are exactly the ones loaded
+    later — otherwise the runtime would recompile.
+    """
+    from lada.restorationpipeline import BASICVSRPP_TRT_ENABLED, BASICVSRPP_TRT_MAX_CLIP_SIZE
+    from lada.restorationpipeline.progress import set_load_progress_callback
+
+    if not BASICVSRPP_TRT_ENABLED:
+        print(_("TensorRT acceleration is disabled (LADA_BASICVSRPP_TRT=0). Nothing to build."))
+        sys.exit(0)
+
+    if restoration_modelfile := ModelFiles.get_restoration_model_by_name(args.mosaic_restoration_model):
+        mosaic_restoration_model_name = restoration_modelfile.name
+        mosaic_restoration_model_path = restoration_modelfile.path
+    elif os.path.isfile(args.mosaic_restoration_model):
+        mosaic_restoration_model_path = args.mosaic_restoration_model
+        mosaic_restoration_model_name = 'basicvsrpp'
+    else:
+        print(_("Invalid mosaic restoration model"))
+        sys.exit(1)
+
+    if not mosaic_restoration_model_name.startswith("basicvsrpp"):
+        print(_("TensorRT acceleration only applies to basicvsrpp restoration models. '{name}' has no engines to build.").format(name=mosaic_restoration_model_name))
+        sys.exit(0)
+
+    device = torch.device(args.device)
+    if device.type != "cuda" or not torch.cuda.is_available():
+        print(_("TensorRT acceleration requires an Nvidia (CUDA) GPU. Selected device: {device}.").format(device=args.device))
+        sys.exit(0)
+    if not args.fp16:
+        print(_("TensorRT acceleration requires FP16. Re-run with --fp16."))
+        sys.exit(0)
+
+    from lada.restorationpipeline.basicvsrpp_trt_compilation import basicvsrpp_startup_policy
+
+    set_load_progress_callback(lambda msg: print(msg, flush=True))
+    print(_("Building TensorRT engines for {model} on {device} (clip upper bound {clip}). This runs once and may take several minutes…").format(
+        model=mosaic_restoration_model_name, device=args.device, clip=BASICVSRPP_TRT_MAX_CLIP_SIZE))
+    try:
+        ok = basicvsrpp_startup_policy(
+            restoration_model_path=mosaic_restoration_model_path,
+            device=device, fp16=True, compile_basicvsrpp=True,
+            max_clip_size=BASICVSRPP_TRT_MAX_CLIP_SIZE, optimization_level=5,
+        )
+    finally:
+        set_load_progress_callback(None)
+
+    if ok:
+        print(_("TensorRT engines ready."))
+        sys.exit(0)
+    else:
+        print(_("TensorRT engine build did not complete (see messages above). The PyTorch path will be used at runtime."))
+        sys.exit(1)
+
+
 def main():
     argparser = setup_argparser()
     args = argparser.parse_args()
@@ -175,6 +237,8 @@ def main():
     if args.list_encoder_options:
         utils.dump_encoder_options(args.list_encoder_options)
         sys.exit(0)
+    if args.build_trt_engines:
+        _build_trt_engines_and_exit(args)
     if args.help or not args.input:
         argparser.print_help()
         sys.exit(0)

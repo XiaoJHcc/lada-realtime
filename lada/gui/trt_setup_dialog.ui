@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+SPDX-FileCopyrightText: Lada Authors
+SPDX-License-Identifier: AGPL-3.0
+-->
+
+<interface>
+    <requires lib="gtk" version="4.0"/>
+    <requires lib="Adw" version="1.0"/>
+    <template class="TrtSetupDialog" parent="AdwDialog">
+        <property name="content-width">480</property>
+        <property name="content-height">320</property>
+        <property name="title" translatable="true">Build acceleration engines</property>
+        <child>
+            <object class="AdwToolbarView">
+                <child type="top">
+                    <object class="AdwHeaderBar">
+                        <property name="show-end-title-buttons" bind-source="TrtSetupDialog" bind-property="can-close" bind-flags="sync-create"/>
+                    </object>
+                </child>
+                <property name="content">
+                    <object class="GtkStack" id="stack">
+                        <property name="transition-type">crossfade</property>
+
+                        <!-- ── prompt page ── -->
+                        <child>
+                            <object class="GtkStackPage">
+                                <property name="name">prompt</property>
+                                <property name="child">
+                                    <object class="GtkBox">
+                                        <property name="orientation">vertical</property>
+                                        <property name="spacing">16</property>
+                                        <property name="margin-top">24</property>
+                                        <property name="margin-bottom">24</property>
+                                        <property name="margin-start">24</property>
+                                        <property name="margin-end">24</property>
+                                        <property name="valign">center</property>
+                                        <child>
+                                            <object class="GtkLabel" id="label_prompt">
+                                                <property name="label" translatable="true">A one-time setup is needed to enable GPU acceleration.</property>
+                                                <property name="wrap">True</property>
+                                                <property name="justify">center</property>
+                                                <property name="xalign">0.5</property>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkDropDown" id="drop_down_gpu">
+                                                <property name="visible">False</property>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkBox" id="box_prompt_buttons">
+                                                <property name="orientation">horizontal</property>
+                                                <property name="spacing">12</property>
+                                                <property name="halign">center</property>
+                                                <property name="margin-top">8</property>
+                                                <child>
+                                                    <object class="GtkButton" id="button_later">
+                                                        <property name="label" translatable="true">Later</property>
+                                                        <signal name="clicked" handler="button_later_clicked_callback"/>
+                                                    </object>
+                                                </child>
+                                                <child>
+                                                    <object class="GtkButton" id="button_build">
+                                                        <property name="label" translatable="true">Build now</property>
+                                                        <style>
+                                                            <class name="suggested-action"/>
+                                                        </style>
+                                                        <signal name="clicked" handler="button_build_clicked_callback"/>
+                                                    </object>
+                                                </child>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkButton" id="button_ok">
+                                                <property name="label" translatable="true">OK</property>
+                                                <property name="visible">False</property>
+                                                <property name="halign">center</property>
+                                                <property name="margin-top">8</property>
+                                                <signal name="clicked" handler="button_ok_clicked_callback"/>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </property>
+                            </object>
+                        </child>
+
+                        <!-- ── progress page ── -->
+                        <child>
+                            <object class="GtkStackPage">
+                                <property name="name">progress</property>
+                                <property name="child">
+                                    <object class="GtkBox">
+                                        <property name="orientation">vertical</property>
+                                        <property name="spacing">20</property>
+                                        <property name="margin-top">24</property>
+                                        <property name="margin-bottom">24</property>
+                                        <property name="margin-start">24</property>
+                                        <property name="margin-end">24</property>
+                                        <property name="valign">center</property>
+                                        <child>
+                                            <object class="AdwSpinner">
+                                                <property name="width-request">48</property>
+                                                <property name="height-request">48</property>
+                                                <property name="halign">center</property>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkLabel" id="label_progress">
+                                                <property name="label" translatable="true">Building acceleration engines…</property>
+                                                <property name="wrap">True</property>
+                                                <property name="justify">center</property>
+                                                <property name="xalign">0.5</property>
+                                            </object>
+                                        </child>
+                                        <child>
+                                            <object class="GtkLabel">
+                                                <property name="label" translatable="true">This runs once and may take several minutes. It cannot be cancelled.</property>
+                                                <property name="wrap">True</property>
+                                                <property name="justify">center</property>
+                                                <property name="xalign">0.5</property>
+                                                <style>
+                                                    <class name="dim-label"/>
+                                                </style>
+                                            </object>
+                                        </child>
+                                    </object>
+                                </property>
+                            </object>
+                        </child>
+                    </object>
+                </property>
+            </object>
+        </child>
+    </template>
+</interface>

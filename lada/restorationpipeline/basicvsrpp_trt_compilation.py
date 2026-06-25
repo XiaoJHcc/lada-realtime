@@ -44,7 +44,7 @@ def compile_mosaic_restoration_model(
     if isinstance(device, str):
         device = torch.device(device)
 
-    if all_sub_engines_exist(mosaic_restoration_model_path, fp16, max_clip_size):
+    if all_sub_engines_exist(mosaic_restoration_model_path, fp16, max_clip_size, device):
         return True
 
     if device.type != "cuda":
@@ -106,7 +106,7 @@ def basicvsrpp_startup_policy(
     if not bool(compile_basicvsrpp):
         return False
 
-    if all_sub_engines_exist(restoration_model_path, fp16, max_clip_size):
+    if all_sub_engines_exist(restoration_model_path, fp16, max_clip_size, device):
         return True
 
     return compile_mosaic_restoration_model(

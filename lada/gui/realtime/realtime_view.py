@@ -27,6 +27,7 @@ from lada.gui.frame_restorer_provider import FrameRestorerProvider, FrameRestore
 from lada.gui.realtime.gstreamer_pipeline_manager_realtime import RealtimePipelineManager
 from lada.gui.watch.gstreamer_pipeline_manager import PipelineState
 from lada.gui.watch.headerbar_files_drop_down import HeaderbarFilesDropDown
+from lada.restorationpipeline.progress import set_load_progress_callback, clear_load_progress_callback
 from lada.gui.watch.overlay_elements_controller import OverlayElementsController
 from lada.gui.watch.seek_preview_popover import SeekPreviewPopover
 from lada.gui.watch.timeline import Timeline
@@ -54,6 +55,7 @@ class RealtimeView(Gtk.Widget):
     box_header_bar_banner = Gtk.Template.Child()
     drop_down_files: HeaderbarFilesDropDown = Gtk.Template.Child()
     spinner_overlay = Gtk.Template.Child()
+    label_loading_status: Gtk.Label = Gtk.Template.Child()
     config_sidebar: ConfigSidebar = Gtk.Template.Child()
     stack_video_player: Gtk.Stack = Gtk.Template.Child()
     view_switcher: Adw.ViewSwitcher = Gtk.Template.Child()
@@ -543,8 +545,17 @@ class RealtimeView(Gtk.Widget):
         self.button_open_files.set_sensitive(False)
         self.stack_video_player.set_visible_child_name("spinner")
         self.overlay_elements_controller.on_spinner_visible(True)
+        # Surface model-load / TRT-compile progress on the spinner label. The
+        # callback fires on the background loading thread, so marshal to the
+        # main loop. Reset to the default text first (covers the cached-engine
+        # case where no compile progress is reported).
+        self.label_loading_status.set_text(_("Loading models…"))
+        set_load_progress_callback(
+            lambda msg: GLib.idle_add(lambda: self.label_loading_status.set_text(msg))
+        )
 
     def _show_video_preview(self, *args):
+        clear_load_progress_callback()
         self.config_sidebar.set_property("disabled", False)
         self.drop_down_files.set_sensitive(True)
         self.view_switcher.set_sensitive(True)

@@ -5,6 +5,7 @@ import torch
 
 from lada import LOG_LEVEL, ModelFiles
 from lada.models.yolo.yolo11_segmentation_model import Yolo11SegmentationModel
+from lada.restorationpipeline.progress import report_load_progress
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=LOG_LEVEL)
@@ -39,12 +40,14 @@ def load_models(
     if mosaic_restoration_model_name.startswith("deepmosaics"):
         from lada.models.deepmosaics.models import loadmodel
         from lada.restorationpipeline.deepmosaics_mosaic_restorer import DeepmosaicsMosaicRestorer
+        report_load_progress(_("Loading restoration model…"))
         _model = loadmodel.video(device, mosaic_restoration_model_path, fp16)
         mosaic_restoration_model = DeepmosaicsMosaicRestorer(_model, device)
         pad_mode = 'reflect'
     elif mosaic_restoration_model_name.startswith("basicvsrpp"):
         from lada.models.basicvsrpp.inference import load_model
         from lada.restorationpipeline.basicvsrpp_mosaic_restorer import BasicvsrppMosaicRestorer
+        report_load_progress(_("Loading restoration model…"))
         _model = load_model(mosaic_restoration_config_path, mosaic_restoration_model_path, device, fp16)
         split_forward = _maybe_build_trt_split_forward(_model, mosaic_restoration_model_path, device, fp16)
         mosaic_restoration_model = BasicvsrppMosaicRestorer(_model, device, fp16, split_forward=split_forward)
@@ -59,6 +62,7 @@ def load_models(
             logger.info("Mosaic detection model v2 does not support detecting face mosaics. Use detection models v3 or newer. Ignoring...")
     else:
         classes = None
+    report_load_progress(_("Loading detection model…"))
     mosaic_detection_model = Yolo11SegmentationModel(mosaic_detection_model_path, device, classes=classes, conf=0.15, fp16=fp16)
 
     # Pay the one-time CUDA/cuDNN init cost now (at model-load time, while the user is already
@@ -69,6 +73,7 @@ def load_models(
     # block model loading.
     if hasattr(mosaic_restoration_model, "warmup"):
         try:
+            report_load_progress(_("Warming up models…"))
             mosaic_restoration_model.warmup()
         except Exception as e:
             logger.warning(f"restoration model warmup skipped: {e}")
@@ -107,6 +112,7 @@ def _maybe_build_trt_split_forward(model, mosaic_restoration_model_path: str, de
         from lada.restorationpipeline.basicvsrpp_trt_compilation import basicvsrpp_startup_policy
         from lada.restorationpipeline.basicvsrpp_sub_engines import create_split_forward
 
+        report_load_progress(_("Building TensorRT acceleration engines (first run only, may take several minutes)…"))
         use_trt = basicvsrpp_startup_policy(
             restoration_model_path=mosaic_restoration_model_path,
             device=device, fp16=fp16, compile_basicvsrpp=True,

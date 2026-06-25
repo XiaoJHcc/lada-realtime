@@ -25,8 +25,6 @@ import torchvision
 from lada.restorationpipeline.trt_engine_paths import (
     BASICVSRPP_DIRECTIONS as DIRECTIONS,
     _basicvsrpp_sub_engine_dir as _sub_engine_dir,
-    engine_precision_name,
-    engine_system_suffix,
     get_basicvsrpp_sub_engine_paths as get_sub_engine_paths,
     all_basicvsrpp_sub_engines_exist as all_sub_engines_exist,
 )
@@ -218,24 +216,6 @@ class _PreprocessWrapper(nn.Module):
         return feats, flows_fwd, flows_bwd
 
 
-def _loop_body_engine_path(engine_dir: str, direction: str, fp16: bool) -> str:
-    prec = engine_precision_name(fp16=fp16)
-    suf = engine_system_suffix()
-    return os.path.join(engine_dir, f"loop_body_{direction}.trt_{prec}{suf}.engine")
-
-
-def _upsample_engine_path(engine_dir: str, fp16: bool, max_clip_size: int) -> str:
-    prec = engine_precision_name(fp16=fp16)
-    suf = engine_system_suffix()
-    return os.path.join(engine_dir, f"upsample_dyn_b{max_clip_size}.trt_{prec}{suf}.engine")
-
-
-def _preprocess_engine_path(engine_dir: str, fp16: bool, max_clip_size: int) -> str:
-    prec = engine_precision_name(fp16=fp16)
-    suf = engine_system_suffix()
-    return os.path.join(engine_dir, f"preprocess_b{max_clip_size}.trt_{prec}{suf}.engine")
-
-
 def _get_inference_generator(model: nn.Module) -> nn.Module:
     if hasattr(model, "generator_ema") and model.generator_ema is not None:
         return model.generator_ema
@@ -260,13 +240,15 @@ def compile_basicvsrpp_sub_engines(
     generator = _get_inference_generator(model)
     mid = generator.mid_channels
 
-    paths: dict[str, str] = {}
+    # Single source of truth for engine paths: the writer (here) and the reader
+    # (load_sub_engines) call the same helper with the same device, so names
+    # can't drift. The filename encodes arch/trt-version/precision/OS/clip-bound.
+    paths = get_sub_engine_paths(model_weights_path, fp16, max_clip_size, device)
 
     # ── loop_body engines (fused deform_align + backbone, static batch=1) ──
     cond_channels = 3 * mid
     for i, direction in enumerate(DIRECTIONS):
-        path = _loop_body_engine_path(engine_dir, direction, fp16)
-        paths[f"loop_body_{direction}"] = path
+        path = paths[f"loop_body_{direction}"]
         if os.path.isfile(path):
             logger.info("Sub-engine already exists: %s", path)
             continue
@@ -296,8 +278,7 @@ def compile_basicvsrpp_sub_engines(
         del wrapper, inp_fp, inp_g1, inp_fn2, inp_g2, inp_fc, inp_f1, inp_f2, inp_bp
 
     # ── preprocess engine (feat_extract + downsample + bidirectional SPyNet, dynamic batch) ──
-    path = _preprocess_engine_path(engine_dir, fp16, max_clip_size)
-    paths["preprocess"] = path
+    path = paths["preprocess"]
     if os.path.isfile(path):
         logger.info("Sub-engine already exists: %s", path)
     else:
@@ -323,8 +304,7 @@ def compile_basicvsrpp_sub_engines(
         del wrapper
 
     # ── upsample engine (dynamic batch – called once for all frames) ──
-    path = _upsample_engine_path(engine_dir, fp16, max_clip_size)
-    paths["upsample"] = path
+    path = paths["upsample"]
     if os.path.isfile(path):
         logger.info("Sub-engine already exists: %s", path)
     else:
@@ -366,22 +346,48 @@ def load_sub_engines(
     fp16: bool,
     max_clip_size: int = 60,
 ) -> tuple[dict[str, nn.Module], nn.Module, nn.Module] | None:
-    """Returns ``(loop_body_engines, preprocess, upsample)`` or *None*."""
-    paths = get_sub_engine_paths(model_weights_path, fp16, max_clip_size)
+    """Returns ``(loop_body_engines, preprocess, upsample)`` or *None*.
+
+    Returns None when an engine file is missing OR when deserialization fails.
+    Deserialization failures happen when a cached engine was built for a
+    different GPU arch / TensorRT version (e.g. after upgrading torch-tensorrt
+    or copying model_weights/ across machines). The arch/trt-version tags in the
+    filename normally prevent a mismatched engine from even matching by name,
+    but as a safety net we catch any load failure, delete the engine files for
+    THIS cache key (not the whole dir — other archs/precisions may be valid),
+    and return None so the caller falls back to PyTorch. The next startup sees
+    the files gone and recompiles. We do NOT recompile synchronously here.
+    """
+    paths = get_sub_engine_paths(model_weights_path, fp16, max_clip_size, device)
     if not all(os.path.isfile(p) for p in paths.values()):
         return None
 
-    loop_body_engines: dict[str, nn.Module] = {}
-    for d in DIRECTIONS:
-        loop_body_engines[d] = load_torchtrt_export(
-            checkpoint_path=paths[f"loop_body_{d}"], device=device,
+    try:
+        loop_body_engines: dict[str, nn.Module] = {}
+        for d in DIRECTIONS:
+            loop_body_engines[d] = load_torchtrt_export(
+                checkpoint_path=paths[f"loop_body_{d}"], device=device,
+            )
+        preprocess_engine = load_torchtrt_export(
+            checkpoint_path=paths["preprocess"], device=device,
         )
-    preprocess_engine = load_torchtrt_export(
-        checkpoint_path=paths["preprocess"], device=device,
-    )
-    upsample_engine = load_torchtrt_export(
-        checkpoint_path=paths["upsample"], device=device,
-    )
+        upsample_engine = load_torchtrt_export(
+            checkpoint_path=paths["upsample"], device=device,
+        )
+    except Exception as e:  # noqa: BLE001 - any deserialize failure -> clean up + fall back
+        logger.warning(
+            "BasicVSR++ TRT sub-engine deserialization failed (%s); deleting "
+            "stale engines for this cache key and falling back to PyTorch. "
+            "They will be recompiled on next startup.", e,
+        )
+        for p in paths.values():
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+            except OSError as rm_err:
+                logger.warning("Could not delete stale engine %s: %s", p, rm_err)
+        return None
+
     return loop_body_engines, preprocess_engine, upsample_engine
 
 

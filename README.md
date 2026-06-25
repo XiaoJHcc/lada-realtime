@@ -5,49 +5,32 @@
 </h1>
 
 <p align="center">
-  <em>A fork of <a href="https://codeberg.org/ladaapp/lada">lada</a> focused on true real-time mosaic removal during playback.</em>
+  <em>原项目 <a href="https://codeberg.org/ladaapp/lada">lada</a> 的分支，专注于播放过程中真正的实时去马赛克。</em>
 </p>
 
 <p align="center">
-  <em>原项目 <a href="https://codeberg.org/ladaapp/lada">lada</a> 的分支，主要优化使其更适合实时播放</em>
+  <a href="README.en.md">English</a> ·
+  <strong>中文</strong>
 </p>
 
 > [!WARNING]
-> **开发中 / Work in progress.**
+> **开发中。**
 
-## 想做什么 / Motivation
+## 想做什么
 
-[lada](https://github.com/ladaapp/lada) 是一个用 AI 去除马赛克的工具，原版为**离线处理**导出视频而设计，自带的预览功能**没有为实时播放做优化**，原项目如此陈述：To watch the restored video in real-time, you'll need a **powerful machine**.
+[lada](https://github.com/ladaapp/lada) 是一个用 AI 去除马赛克的工具，原版为**离线处理**导出视频而设计，自带的预览功能**没有为实时播放做优化**，原项目如此陈述：To watch the restored video in real-time, you'll need a **powerful machine**。
 
 但 RTX 4080 难道还不够 powerful 吗，导出视频可以跑到 30-45 帧，明明有实时播放的潜力，但原版的缓冲速度实在难以用于观看视频。
 
 该 Fork 并未优化模型本身，仅优化 AI 任务调度和前端视频播放策略，优先保证视频播放，再择机去除马赛克。
 
----
-
-[lada](https://github.com/ladaapp/lada) is an AI mosaic-removal tool. The original is built for **offline export**, and its built-in preview is **not optimized for real-time playback** — as the upstream README puts it: To watch the restored video in real-time, you'll need a **powerful machine**.
-
-But isn't an RTX 4080 powerful enough? Export already runs at 30–45 fps, so the potential for real-time playback is clearly there — yet the upstream's buffer-first pacing makes it impractical for actually *watching* a video.
-
-This fork doesn't touch the models themselves. It only reworks AI task scheduling and the front-end playback strategy: keep playback going first, remove mosaics when the GPU can keep up.
-
-## 已做优化 / What's Done
+## 已做优化
 
 **实时播放：从「数据驱动」改成「时钟驱动」**
 
 - **永不暂停**：原版的播放节奏由 AI 处理进度决定：每一帧都要等去码结果算完才显示，算不过来就暂停缓冲。本 fork 反过来，让播放永不暂停，如果该帧 AI 已准备好，就播放去码画面，否则回退到原画。
 
 > 所以依然需要强大的显卡，要不然还是会回退的。
-
----
-
-**Playback: data-driven → clock-driven**
-
-- **Never pause**: Upstream's pacing is dictated by AI progress — every frame waits for its restoration to finish, and it pauses to buffer when it can't keep up. This fork inverts that: playback never stops; if the AI frame is ready it shows the restored image, otherwise it falls back to the original.
-
-> So you still need a powerful GPU — otherwise it just keeps falling back to the original.
-
----
 
 **任务调度：只算「马上要看的」，且提前计算未来**
 
@@ -56,14 +39,53 @@ This fork doesn't touch the models themselves. It only reworks AI task schedulin
 - **预热模型**：模型加载后先空跑一次，把显卡首次初始化的一次性开销在加载阶段付掉。
 - **减小窗口**：默认使用较低的片段窗口设置，提升响应速度，但时间稳定性下降。
 
----
+**TensorRT 加速（Nvidia）**
 
-**Scheduling: compute only what's about to be seen, and prefetch the future**
+- 把 BasicVSR++ 修复模型拆成 6 个 TensorRT 子引擎，修复模型独占显卡时推理实测提速 **3–4 倍**。仅 Nvidia + FP16 可用，其他情况无缝回退到 PyTorch。
+- 引擎绑定 GPU 架构 + TensorRT 版本，**首次运行需在本机编译一次**（约十几分钟，只需一次）。换显卡或升级 TensorRT 会自动失活并重编。详见下方「构建与分发」。
 
-- **Prefetch**: After a seek, the AI skips the frames right at the playhead and starts a short distance ahead. The original plays for that brief gap, and by the time the playhead catches up the restored frames are ready for a seamless switch.
-- **Bounded frontier**: Fixes the upstream behavior where the detector (YOLO) races ahead indefinitely; now it only processes the short window the restorer (BasicVSR++) needs for its next clip.
-- **Warmup**: Run a dummy pass right after loading so the GPU's one-time initialization cost is paid during load, not on the first real frame.
-- **Smaller window**: Default to a shorter clip window for faster response, at the cost of some temporal stability.
+## 构建与分发
+
+从拉取源码到打包成可分发软件（Windows，Nvidia）。其余平台见上游 [`docs/`](docs/)。
+
+### 1. 拉取与系统依赖
+
+```powershell
+git clone <本仓库地址> lada-realtime
+cd lada-realtime
+```
+
+打包脚本会自动安装系统依赖（FFmpeg / uv / 7zip / MSYS2 / VS Build Tools 等），无需手动准备。
+
+### 2. 一键打包
+
+打包脚本 [`packaging/windows/package_executable.ps1`](packaging/windows/package_executable.ps1) 是端到端自动化——装系统依赖、用 gvsbuild 编译 GTK、编译翻译、下载模型权重、创建 venv、安装 Python 依赖并打补丁、PyInstaller 打 EXE、最后打成 7z 压缩包：
+
+```powershell
+# 在项目根目录运行（默认 Nvidia）
+.\packaging\windows\package_executable.ps1 -extra nvidia
+```
+
+产物为 `lada.exe`（GUI）+ `lada-cli.exe`（命令行），打进 7z 分发包。常用参数：
+
+- `-cliOnly`：只打命令行版，跳过 GTK 编译。
+- `-skipWinget` / `-skipGvsbuild`：已装过系统依赖 / 已编过 GTK 时跳过，省时间。
+- `-extra intel`：Intel Arc。
+
+> **TensorRT 加速依赖**：本 fork 的 TRT 加速需要 `torch-tensorrt`。它不在默认依赖里，打包前在 venv 内 `uv pip install torch-tensorrt`（与本机 torch 版本对应，如 `torch-tensorrt==2.8.0`）。不装也能打包，只是运行时只走 PyTorch 路径。
+
+### 3. TensorRT 引擎不进分发包
+
+TRT 引擎绑定具体 GPU 架构 + TensorRT 版本，**不能跨机分发**，所以分发包里**不含**编好的引擎，由终端用户在自己机器上首次编译：
+
+- **GUI**：首次启动会弹窗引导——无 Nvidia 卡则提示走 PyTorch；单卡提示「立即构建 / 以后再说」；多卡可选用哪块卡（选定的卡同时作为推理设备）。点构建后弹窗内显示编译进度（约十几分钟，不可取消）。跳过则下次启动再提示，直到编译过一次。
+- **命令行 / 安装脚本**：装好后运行一次 `lada-cli --build-trt-engines` 预热，把编译挪到安装阶段，避免首次播放/导出时卡住。
+
+引擎编好后缓存在 `model_weights/<模型名>_sub_engines/`，文件名编入了 GPU 架构、TensorRT 版本、精度等，升级 `torch-tensorrt` 或换显卡会自动失活重编。可用环境变量 `LADA_BASICVSRPP_TRT=0` 强制关闭 TRT、只走 PyTorch。
+
+### 从源码直接运行（开发）
+
+不打包、直接跑源码用于开发，详见 [`CLAUDE.md`](CLAUDE.md) 的「构建与运行」与 [`docs/windows_install.md`](docs/windows_install.md)。要点：`uv venv` → `uv sync --extra nvidia` → 打 patches → 下载模型到 `model_weights/` → GUI 还需 `build_gtk/` 就位。源码版显中文需先把 `translations/*.po` 编译成 `.mo`（见 CLAUDE.md）。
 
 ## License
 

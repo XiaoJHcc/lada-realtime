@@ -171,6 +171,16 @@ class MainWindow(Adw.ApplicationWindow):
 
         surface.connect("notify::state", self._on_toplevel_state_changed)
 
+        # First-run guided TRT engine build. Deferred via idle_add so the window
+        # paints its first frame before the dialog appears. No-op when engines
+        # already exist / TRT disabled / no fp16 CUDA GPU (decided inside).
+        if self._config is not None:
+            def _show_trt_setup():
+                from lada.gui.trt_setup_dialog import maybe_show_trt_setup_dialog
+                maybe_show_trt_setup_dialog(self, self._config)
+                return False
+            GLib.idle_add(_show_trt_setup)
+
 
     def _on_toplevel_state_changed(self, toplevel: Gdk.Toplevel, *_args) -> None:
         focused = bool(toplevel.get_state() & Gdk.ToplevelState.FOCUSED)

@@ -794,6 +794,75 @@ msgid ""
 "AV1, SVT-AV1 software encoder, Indistinguishable Quality, Smaller File Size"
 msgstr "AV1, SVT-AV1 軟體編碼器,畫質無明顯差異,檔案更小"
 
+msgid "Build acceleration engines"
+msgstr "建構加速引擎"
+
+msgid "A one-time setup is needed to enable GPU acceleration."
+msgstr "啟用 GPU 加速需要一次性的初始設定。"
+
+msgid "Later"
+msgstr "稍後再說"
+
+msgid "Build now"
+msgstr "立即建構"
+
+msgid "OK"
+msgstr "確定"
+
+msgid "Building acceleration engines…"
+msgstr "正在建構加速引擎…"
+
+msgid "This runs once and may take several minutes. It cannot be cancelled."
+msgstr "此程序僅需一次,可能耗時數分鐘,且無法取消。"
+
+msgid "No Nvidia GPU detected. GPU acceleration is unavailable; the slower PyTorch path will be used."
+msgstr "未偵測到 Nvidia 顯示卡。GPU 加速無法使用,將改用較慢的 PyTorch 路徑。"
+
+msgid "TensorRT acceleration requires FP16, which is currently disabled. The PyTorch path will be used. Enable FP16 in settings to build acceleration engines."
+msgstr "TensorRT 加速需要 FP16,但目前已停用。將改用 PyTorch 路徑。在設定中啟用 FP16 後即可建構加速引擎。"
+
+#, python-brace-format
+msgid "Select the GPU to accelerate, then build its engines. This one-time setup may take several minutes and cannot be cancelled. The selected GPU will also be used for processing."
+msgstr "選擇要加速的顯示卡,然後建構其引擎。此一次性設定可能耗時數分鐘且無法取消。所選顯示卡也將用於處理。"
+
+#, python-brace-format
+msgid "Build GPU acceleration engines for {gpu}? This one-time setup may take several minutes and cannot be cancelled. Without it the slower PyTorch path is used until the engines are built."
+msgstr "要為 {gpu} 建構 GPU 加速引擎嗎?此一次性設定可能耗時數分鐘且無法取消。在建構完成前將使用較慢的 PyTorch 路徑。"
+
+msgid "Building acceleration engines failed. The slower PyTorch path will be used."
+msgstr "建構加速引擎失敗。將改用較慢的 PyTorch 路徑。"
+
+#, python-brace-format
+msgid "Building acceleration engines failed ({error}). The slower PyTorch path will be used."
+msgstr "建構加速引擎失敗({error})。將改用較慢的 PyTorch 路徑。"
+
+msgid "Precompile the TensorRT acceleration engines for the current GPU and exit. Run this once after installation so the first real playback/export doesn't block on a multi-minute compile. Requires an Nvidia GPU with FP16. (Nvidia only)"
+msgstr "為目前顯示卡預先編譯 TensorRT 加速引擎並結束。安裝後執行一次,即可避免首次播放/匯出時卡在數分鐘的編譯上。需要支援 FP16 的 Nvidia 顯示卡。(僅限 Nvidia)"
+
+msgid "TensorRT acceleration is disabled (LADA_BASICVSRPP_TRT=0). Nothing to build."
+msgstr "TensorRT 加速已停用(LADA_BASICVSRPP_TRT=0)。無需建構。"
+
+#, python-brace-format
+msgid "TensorRT acceleration only applies to basicvsrpp restoration models. '{name}' has no engines to build."
+msgstr "TensorRT 加速僅適用於 basicvsrpp 修復模型。「{name}」沒有可建構的引擎。"
+
+#, python-brace-format
+msgid "TensorRT acceleration requires an Nvidia (CUDA) GPU. Selected device: {device}."
+msgstr "TensorRT 加速需要 Nvidia(CUDA)顯示卡。所選裝置:{device}。"
+
+msgid "TensorRT acceleration requires FP16. Re-run with --fp16."
+msgstr "TensorRT 加速需要 FP16。請加上 --fp16 重新執行。"
+
+#, python-brace-format
+msgid "Building TensorRT engines for {model} on {device} (clip upper bound {clip}). This runs once and may take several minutes…"
+msgstr "正在 {device} 上為 {model} 建構 TensorRT 引擎(clip 上界 {clip})。此程序僅需一次,可能耗時數分鐘…"
+
+msgid "TensorRT engines ready."
+msgstr "TensorRT 引擎已就緒。"
+
+msgid "TensorRT engine build did not complete (see messages above). The PyTorch path will be used at runtime."
+msgstr "TensorRT 引擎建構未完成(見上方訊息)。執行時將改用 PyTorch 路徑。"
+
 #, python-format
 #~ msgid ""
 #~ "Device used for running Restoration and Detection models. Use \"cpu\" or "
