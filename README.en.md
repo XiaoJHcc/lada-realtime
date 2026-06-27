@@ -72,7 +72,9 @@ Output is `lada.exe` (GUI) + `lada-cli.exe` (CLI), bundled into a 7z archive. Us
 - `-skipWinget` / `-skipGvsbuild`: skip when system deps / GTK are already built — saves time.
 - `-extra intel`: Intel Arc.
 
-> **TensorRT acceleration dependency**: this fork's TRT acceleration needs `torch-tensorrt`. It isn't a default dependency — before packaging, run `uv pip install torch-tensorrt` inside the venv (matching your local torch, e.g. `torch-tensorrt==2.8.0`). Packaging works without it; you just get the PyTorch path at runtime.
+> **TensorRT acceleration dependency**: the `torch-tensorrt` / `tensorrt` packages this fork's TRT path needs are declared in the `nvidia` extra, so `uv sync --extra nvidia` (run automatically by the packaging script) installs them. The `tensorrt` runtime libraries (including the `nvinfer_builder_resource` compiler, ~2.2GB) are bundled into the archive by PyInstaller so end users can compile engines locally. Non-Nvidia builds don't include this.
+
+> **Mirrors**: this repo's `pyproject.toml` ships **China-based mirrors** by default (Tsinghua for PyPI, NJU for PyTorch). If you're outside China, swap them back to the official indexes for best speed — see [docs/windows_packaging.md](docs/windows_packaging.md#mirrors--proxy). TensorRT libs must stay on NVIDIA's official index (`https://pypi.nvidia.com`) regardless of location, since mirrors only carry a stub.
 
 ### 3. TensorRT engines are NOT shipped
 
@@ -86,6 +88,8 @@ Engines are cached under `model_weights/<model>_sub_engines/`, with the GPU arch
 ### Running from source (development)
 
 To run from source without packaging, see "Build & Run" in [`CLAUDE.md`](CLAUDE.md) and [`docs/windows_install.md`](docs/windows_install.md). In short: `uv venv` → `uv sync --extra nvidia` → apply patches → download models into `model_weights/` → for the GUI also have `build_gtk/` in place. A source run needs `translations/*.po` compiled to `.mo` to show Chinese (see CLAUDE.md).
+
+For the full packaging walkthrough, gvsbuild GTK build pitfalls, TensorRT bundling details, and the mirror/proxy configuration (the repo defaults to China mirrors), see [`docs/windows_packaging.md`](docs/windows_packaging.md).
 
 ## License
 

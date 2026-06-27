@@ -3,13 +3,33 @@
 # SPDX-License-Identifier: AGPL-3.0
 
 import argparse
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_all
 from os.path import join as ospj
 import shutil
 import os
 import sys
 import pathlib
 import fnmatch
+
+# TensorRT acceleration for BasicVSR++ (feat/trt-basicvsrpp). These packages are
+# lazy-imported in the codebase (the TRT path falls back to PyTorch on any
+# failure) and ship no PyInstaller hooks, so static analysis misses them and the
+# native DLLs/pyd never get bundled -> "No module named 'tensorrt'" at runtime.
+# collect_all pulls in the Python modules, the multi-GB tensorrt_libs DLLs
+# (incl. nvinfer_builder_resource, needed for on-device engine compilation),
+# and the torch_tensorrt _C extension. Only relevant to the nvidia build; on
+# intel/cli-only the imports are absent and these collect to empty lists.
+def get_trt_collection():
+    trt_datas, trt_binaries, trt_hiddenimports = [], [], []
+    for pkg in ("tensorrt", "tensorrt_libs", "tensorrt_bindings", "torch_tensorrt"):
+        try:
+            datas, binaries, hiddenimports = collect_all(pkg)
+            trt_datas += datas
+            trt_binaries += binaries
+            trt_hiddenimports += hiddenimports
+        except Exception as e:
+            print(f"-> [TRT] Skipping {pkg}: {e}")
+    return trt_datas, trt_binaries, trt_hiddenimports
 
 def get_project_root() -> str:
     project_root = pathlib.Path(".").absolute()
@@ -83,8 +103,6 @@ def get_common_binaries(project_root):
 
 def get_common_datas(project_root: str):
     common_datas = [
-        (ospj(project_root, 'model_weights/lada_mosaic_detection_model_v2.pt'), 'model_weights'),
-        (ospj(project_root, 'model_weights/lada_mosaic_detection_model_v4_accurate.pt'), 'model_weights'),
         (ospj(project_root, 'model_weights/lada_mosaic_detection_model_v4_fast.pt'), 'model_weights'),
         (ospj(project_root, 'model_weights/lada_mosaic_restoration_model_generic_v1.2.pth'), 'model_weights'),
         (ospj(project_root, 'model_weights/3rd_party/clean_youknow_video.pth'), 'model_weights/3rd_party'),
@@ -93,7 +111,7 @@ def get_common_datas(project_root: str):
     common_datas += [(str(p), str(p.relative_to(project_root).parent)) for p in pathlib.Path(ospj(project_root, "lada/locale")).rglob("*.mo")]
     return common_datas
 
-def get_gui_components(project_root_dir: str, common_datas: list, common_binaries: list, common_runtime_hooks: list, common_icon):
+def get_gui_components(project_root_dir: str, common_datas: list, common_binaries: list, common_runtime_hooks: list, common_icon, trt_datas: list, trt_binaries: list, trt_hiddenimports: list):
     gui_datas = common_datas + [
         (str(p), str(p.relative_to(project_root_dir).parent)) for p in (pathlib.Path(project_root_dir) / "lada" / "gui").rglob("*.ui")
     ] + [
@@ -118,9 +136,9 @@ def get_gui_components(project_root_dir: str, common_datas: list, common_binarie
     gui_a = Analysis(
         [ospj(project_root_dir, 'lada/gui/main.py')],
         pathex=[],
-        binaries=gui_binaries,
-        datas=gui_datas,
-        hiddenimports=[],
+        binaries=gui_binaries + trt_binaries,
+        datas=gui_datas + trt_datas,
+        hiddenimports=trt_hiddenimports,
         hookspath=[],
         hooksconfig={
             "gi": {
@@ -152,13 +170,13 @@ def get_gui_components(project_root_dir: str, common_datas: list, common_binarie
     )
     return gui_a, gui_pyz, gui_exe
 
-def get_cli_components(project_root_dir: str, common_datas: list, common_binaries: list, common_runtime_hooks: list, common_icon):
+def get_cli_components(project_root_dir: str, common_datas: list, common_binaries: list, common_runtime_hooks: list, common_icon, trt_datas: list, trt_binaries: list, trt_hiddenimports: list):
     cli_a = Analysis(
         [ospj(project_root_dir, 'lada/cli/main.py')],
         pathex=[],
-        binaries=common_binaries,
-        datas=common_datas,
-        hiddenimports=[],
+        binaries=common_binaries + trt_binaries,
+        datas=common_datas + trt_datas,
+        hiddenimports=trt_hiddenimports,
         hookspath=[],
         hooksconfig={},
         runtime_hooks=common_runtime_hooks,
@@ -211,7 +229,15 @@ common_binaries = get_common_binaries(project_root)
 common_runtime_hooks = [ospj(project_root, "packaging/windows/pyinstaller_runtime_hook_lada.py")]
 common_icon = [ospj(project_root, 'assets/io.github.ladaapp.lada.png')]
 
-cli_a, cli_pyz, cli_exe = get_cli_components(project_root, common_datas, common_binaries, common_runtime_hooks, common_icon)
+# TensorRT is only present in the nvidia build; collect it once and share
+# between the CLI and GUI analyses. On intel/cpu these collect to empty lists.
+if BUILD_EXTRA == "nvidia":
+    trt_datas, trt_binaries, trt_hiddenimports = get_trt_collection()
+    print(f"-> [TRT] Collected {len(trt_binaries)} binaries, {len(trt_datas)} datas, {len(trt_hiddenimports)} hiddenimports")
+else:
+    trt_datas, trt_binaries, trt_hiddenimports = [], [], []
+
+cli_a, cli_pyz, cli_exe = get_cli_components(project_root, common_datas, common_binaries, common_runtime_hooks, common_icon, trt_datas, trt_binaries, trt_hiddenimports)
 coll = COLLECT(
     cli_exe,
     cli_a.binaries,
@@ -233,7 +259,7 @@ if args.cli_only:
         name='lada',
     )
 else:
-    gui_a, gui_pyz, gui_exe = get_gui_components(project_root, common_datas, common_binaries, common_runtime_hooks, common_icon)
+    gui_a, gui_pyz, gui_exe = get_gui_components(project_root, common_datas, common_binaries, common_runtime_hooks, common_icon, trt_datas, trt_binaries, trt_hiddenimports)
     coll = COLLECT(
         gui_exe,
         gui_a.binaries,

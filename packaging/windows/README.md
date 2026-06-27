@@ -1,5 +1,9 @@
 ## Build exe
 
+> [!NOTE]
+> For the full walkthrough — pipeline stages, TensorRT bundling, mirror/proxy config, and
+> gvsbuild build pitfalls — see [`docs/windows_packaging.md`](../../docs/windows_packaging.md).
+
 ```powershell
 powershell -ExecutionPolicy Bypass ./packaging/windows/package_executable.ps1 -extra nvidia
 ```

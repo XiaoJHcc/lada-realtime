@@ -53,7 +53,7 @@ version = { attr = "lada.VERSION" }
 # There would be a workaround though https://github.com/pytorch/pytorch/releases/tag/v2.9.1
 # Will probably skip and wait for PyTorch 2.10 release
 nvidia-legacy = ["torch==2.8.0; sys_platform == 'linux' or sys_platform == 'win32'", "torchvision==0.23.0; sys_platform == 'linux' or sys_platform == 'win32'"]
-nvidia = ["torch==2.8.0; sys_platform == 'linux' or sys_platform == 'win32'", "torchvision==0.23.0; sys_platform == 'linux' or sys_platform == 'win32'"]
+nvidia = ["torch==2.8.0; sys_platform == 'linux' or sys_platform == 'win32'", "torchvision==0.23.0; sys_platform == 'linux' or sys_platform == 'win32'", "torch-tensorrt==2.8.0; sys_platform == 'linux' or sys_platform == 'win32'", "tensorrt-cu12-libs==10.12.0.36; sys_platform == 'linux' or sys_platform == 'win32'", "tensorrt-cu12-bindings==10.12.0.36; sys_platform == 'linux' or sys_platform == 'win32'"]
 intel = ["torch==2.9.1; sys_platform == 'linux' or sys_platform == 'win32'", "torchvision==0.24.1; sys_platform == 'linux' or sys_platform == 'win32'", "pytorch-triton-xpu ; sys_platform == 'win32' or sys_platform == 'linux'"]
 cpu = ["torch==2.9.1", "torchvision==0.24.1"]
 gui = ["pycairo", "PyGObject"]
@@ -81,6 +81,14 @@ url = "https://mirrors.nju.edu.cn/pytorch/whl/cu128"
 explicit = true
 
 [[tool.uv.index]]
+# TensorRT runtime libs/bindings (tensorrt-cu12-libs / -bindings) are published
+# only on NVIDIA's index; the default (Tsinghua) mirror is stale (stops at
+# tensorrt 10.2 / torch-tensorrt 2.4). Pulled transitively by torch-tensorrt.
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
+
+[[tool.uv.index]]
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
 explicit = true
@@ -96,6 +104,15 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.uv]
+# Lada ships only on x86_64 linux/windows and macOS. Pinning the resolution
+# environments stops uv from solving impossible splits (e.g. aarch64+tegra
+# Jetson), where torch-tensorrt's tegra variant pulls numpy<2 and clashes with
+# opencv's numpy>=2. Without this, adding torch-tensorrt makes the lock
+# unsatisfiable for a platform we never build for.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
 conflicts = [
       [
         { extra = "cpu" },
@@ -139,4 +156,15 @@ torchvision = [
 ]
 pytorch-triton-xpu = [
   { index = "pytorch-xpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+]
+torch-tensorrt = [
+    { index = "pytorch-cu128", extra = "nvidia" },
+]
+# torch-tensorrt pulls these transitively; the default mirror (Tsinghua) only
+# has a stub sdist for -libs. The real win/linux wheels live on NVIDIA's index.
+tensorrt-cu12-libs = [
+    { index = "nvidia", extra = "nvidia" },
+]
+tensorrt-cu12-bindings = [
+    { index = "nvidia", extra = "nvidia" },
 ]

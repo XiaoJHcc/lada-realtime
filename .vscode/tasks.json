@@ -52,6 +52,21 @@
       "options": { "cwd": "${workspaceFolder}" },
       "presentation": { "reveal": "always", "panel": "shared" },
       "problemMatcher": []
+    },
+    {
+      "label": "Package: build distributable .exe",
+      "detail": "跑 packaging/windows/package_executable.ps1 做可分发包。首跑选 (none) 走完整流程(含 gvsbuild 编译 GTK，很慢，需管理员)；重打可选 skipWinget+skipGvsbuild 复用已编译的 build_gtk_release。",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "& '${workspaceFolder}\\packaging\\windows\\package_executable.ps1' -extra ${input:packExtra} ${input:packFlags}"
+      ],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
     }
   ],
   "inputs": [
@@ -66,6 +81,26 @@
       "description": "编译哪个中文翻译",
       "options": ["zh_CN", "zh_TW"],
       "default": "zh_CN"
+    },
+    {
+      "id": "packExtra",
+      "type": "pickString",
+      "description": "打包目标显卡 extra",
+      "options": ["nvidia", "intel"],
+      "default": "nvidia"
+    },
+    {
+      "id": "packFlags",
+      "type": "pickString",
+      "description": "打包流程选项（首跑选第一项走完整流程）",
+      "options": [
+        { "label": "(none) 完整流程：winget+gvsbuild+翻译+权重+打包+压缩", "value": "" },
+        { "label": "-skipWinget 跳过 winget（系统依赖已装好时用）", "value": "-skipWinget" },
+        { "label": "-skipWinget -skipGvsbuild 复用已编译 GTK，重打 exe", "value": "-skipWinget -skipGvsbuild" },
+        { "label": "-skipWinget -skipGvsbuild -skipArchive 重打 exe 且不压缩", "value": "-skipWinget -skipGvsbuild -skipArchive" },
+        { "label": "-cliOnly 仅打 lada-cli.exe（不需 GTK）", "value": "-cliOnly -skipGvsbuild" }
+      ],
+      "default": ""
     }
   ]
 }
