@@ -38,7 +38,7 @@ SPDX-License-Identifier: AGPL-3.0
                                         <property name="valign">center</property>
                                         <child>
                                             <object class="GtkLabel" id="label_prompt">
-                                                <property name="label" translatable="true">A one-time setup is needed to enable GPU acceleration.</property>
+                                                <property name="label" translatable="true">A one-time initialization is needed to enable GPU acceleration.</property>
                                                 <property name="wrap">True</property>
                                                 <property name="justify">center</property>
                                                 <property name="xalign">0.5</property>
@@ -116,7 +116,7 @@ SPDX-License-Identifier: AGPL-3.0
                                         </child>
                                         <child>
                                             <object class="GtkLabel">
-                                                <property name="label" translatable="true">This runs once and may take several minutes. It cannot be cancelled.</property>
+                                                <property name="label" translatable="true">This runs once and may take several minutes. It cannot be interrupted.</property>
                                                 <property name="wrap">True</property>
                                                 <property name="justify">center</property>
                                                 <property name="xalign">0.5</property>

@@ -133,9 +133,8 @@ class TrtSetupDialog(Adw.Dialog):
         else:
             device, name = self._cuda_gpus[0]
             self.label_prompt.set_text(_(
-                "Build GPU acceleration engines for {gpu}? This one-time setup may take "
-                "several minutes and cannot be cancelled. Without it the slower PyTorch "
-                "path is used until the engines are built.").format(gpu=name))
+                "Build GPU acceleration engines for {gpu}? Only needs to be built once, "
+                "may take several minutes, and cannot be interrupted.").format(gpu=name))
 
     # ── selected device ──────────────────────────────────────────────────
     def _selected_device(self) -> str:

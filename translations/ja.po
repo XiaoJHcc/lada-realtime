@@ -346,6 +346,48 @@ msgstr "ファイルを開いたときの表示"
 msgid "Watch"
 msgstr "視聴"
 
+msgid "Realtime"
+msgstr "リアルタイムプレビュー"
+
+msgid "Realtime playback"
+msgstr "リアルタイム再生"
+
+msgid "Realtime clip length"
+msgstr "リアルタイムクリップ長"
+
+msgid "Number of frames per clip in the realtime preview. Shorter clips lower first-frame latency but reduce temporal stability. Independent from the export/preview maximum clip duration."
+msgstr "リアルタイムプレビューで各クリップのフレーム数。クリップが短いほど初フレーム遅延が低くなりますが、時間安定性が低下します。エクスポート/プレビューの最大クリップ長とは独立しています。"
+
+msgid "Buffer window"
+msgstr "バッファウィンドウ"
+
+msgid "Cold-start lead"
+msgstr "コールドスタートの先行量"
+
+msgid "To avoid AI processing always lagging behind playback, after seeking the AI skips ahead by N clips to process unreached frames. Ideally this switches smoothly to AI frames within the set lead time. Increase if AI can't keep up; decrease to shorten original frames at the start."
+msgstr "AI の処理進度が常に映像に遅れることを避けるため、シークバーをジャンプした後、AI は現在の N 個のクリップ長のタスクを直接スキップし、未再生の映像を先行処理します。理想的には、設定した先行時間内にスムーズに AI 映像に切り替わります。AI がどうしても追いつかない場合は、この値を大きくしてください。冒頭のオリジナル映像の長さを短くしたい場合は、小さくしてください。"
+
+msgid "How many frames to preload. Larger values let the AI load further ahead, making continuous playback more stable."
+msgstr "何フレーム分を先読みするか。値が大きいほど、AI がより先の映像を先読みし、連続再生がより安定します。"
+
+msgid "Detection rate"
+msgstr "検出フレームレート"
+
+msgid "Restoration rate"
+msgstr "修復フレームレート"
+
+msgid "Buffer progress"
+msgstr "バッファ進捗"
+
+msgid "AI hit rate"
+msgstr "AI ヒット率"
+
+msgid "Discarded frames"
+msgstr "破棄フレーム数"
+
+msgid "Restored frames the playhead passed before they could be shown"
+msgstr "再生ヘッドが通り過ぎて表示できなかった修復フレーム"
+
 msgid "Reset to factory settings"
 msgstr "初期設定にリセット"
 
@@ -385,6 +427,9 @@ msgstr "エクスポート表示に切り替え"
 
 msgid "Switch to Watch View"
 msgstr "再生画面に切り替え"
+
+msgid "Loading models…"
+msgstr "モデルを読み込み中…"
 
 msgid "Select one or multiple video files"
 msgstr "1つまたは複数の動画ファイルを選択"
@@ -786,6 +831,75 @@ msgid ""
 msgstr ""
 "AV1, SVT-AV1 ソフトウェア エンコーダー,見分けがつかない程の品質,小さいファイ"
 "ル サイズ"
+
+msgid "Build acceleration engines"
+msgstr "加速エンジンを構築"
+
+msgid "A one-time initialization is needed to enable GPU acceleration."
+msgstr "GPU 加速を有効にするには初期設定が必要です。"
+
+msgid "Later"
+msgstr "後で"
+
+msgid "Build now"
+msgstr "今すぐ構築"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "Building acceleration engines…"
+msgstr "加速エンジンを構築中…"
+
+msgid "This runs once and may take several minutes. It cannot be interrupted."
+msgstr "この処理は一度だけで、数分かかる場合があります。キャンセルできません。"
+
+msgid "No Nvidia GPU detected. GPU acceleration is unavailable; the slower PyTorch path will be used."
+msgstr "Nvidia GPU が検出されません。GPU 加速は利用できません。遅い PyTorch パスが使用されます。"
+
+msgid "TensorRT acceleration requires FP16, which is currently disabled. The PyTorch path will be used. Enable FP16 in settings to build acceleration engines."
+msgstr "TensorRT 加速には FP16 が必要ですが、現在無効になっています。PyTorch パスが使用されます。設定で FP16 を有効にして加速エンジンを構築してください。"
+
+#, python-brace-format
+msgid "Select the GPU to accelerate, then build its engines. This one-time setup may take several minutes and cannot be cancelled. The selected GPU will also be used for processing."
+msgstr "加速する GPU を選択し、エンジンを構築してください。この一度きりの設定には数分かかる場合があり、キャンセルできません。選択した GPU は処理にも使用されます。"
+
+#, python-brace-format
+msgid "Build GPU acceleration engines for {gpu}? Only needs to be built once, may take several minutes, and cannot be interrupted."
+msgstr "{gpu} の GPU 加速エンジンを構築しますか？一度きりの構築で、数分かかる場合があり、キャンセルできません。"
+
+msgid "Building acceleration engines failed. The slower PyTorch path will be used."
+msgstr "加速エンジンの構築に失敗しました。遅い PyTorch パスが使用されます。"
+
+#, python-brace-format
+msgid "Building acceleration engines failed ({error}). The slower PyTorch path will be used."
+msgstr "加速エンジンの構築に失敗しました（{error}）。遅い PyTorch パスが使用されます。"
+
+msgid "Precompile the TensorRT acceleration engines for the current GPU and exit. Run this once after installation so the first real playback/export doesn't block on a multi-minute compile. Requires an Nvidia GPU with FP16. (Nvidia only)"
+msgstr "現在の GPU 用に TensorRT 加速エンジンを事前コンパイルして終了。インストール後に一度実行すると、初回の再生/エクスポートが数分のコンパイルでブロックされなくなります。FP16 対応 Nvidia GPU が必要です。（Nvidia のみ）"
+
+msgid "TensorRT acceleration is disabled (LADA_BASICVSRPP_TRT=0). Nothing to build."
+msgstr "TensorRT 加速は無効です（LADA_BASICVSRPP_TRT=0）。構築するものはありません。"
+
+#, python-brace-format
+msgid "TensorRT acceleration only applies to basicvsrpp restoration models. '{name}' has no engines to build."
+msgstr "TensorRT 加速は basicvsrpp 修復モデルにのみ適用されます。「{name}」には構築するエンジンがありません。"
+
+#, python-brace-format
+msgid "TensorRT acceleration requires an Nvidia (CUDA) GPU. Selected device: {device}."
+msgstr "TensorRT 加速には Nvidia（CUDA）GPU が必要です。選択されたデバイス：{device}。"
+
+msgid "TensorRT acceleration requires FP16. Re-run with --fp16."
+msgstr "TensorRT 加速には FP16 が必要です。--fp16 を付けて再実行してください。"
+
+#, python-brace-format
+msgid "Building TensorRT engines for {model} on {device} (clip upper bound {clip}). This runs once and may take several minutes…"
+msgstr "{device} 上で {model} の TensorRT エンジンを構築中（クリップ上限 {clip}）。この処理は一度だけで、数分かかる場合があります…"
+
+msgid "TensorRT engines ready."
+msgstr "TensorRT エンジン準備完了。"
+
+msgid "TensorRT engine build did not complete (see messages above). The PyTorch path will be used at runtime."
+msgstr "TensorRT エンジンの構築が完了しませんでした（上記メッセージ参照）。実行時には PyTorch パスが使用されます。"
 
 #, python-format
 #~ msgid ""

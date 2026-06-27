@@ -344,43 +344,34 @@ msgid "Realtime playback"
 msgstr "即時播放"
 
 msgid "Realtime clip length"
-msgstr "即時切片影格數"
+msgstr "即時切片長度"
 
-msgid "Number of frames per clip in the realtime preview. Shorter clips lower latency (the AI can keep up more easily) but reduce temporal stability. Independent from the export/preview maximum clip duration."
-msgstr "即時預覽中每個切片的影格數。切片越短延遲越低（AI 更容易跟上），但時間穩定性越弱。與匯出/預覽的最大切片影格數相互獨立。"
+msgid "Number of frames per clip in the realtime preview. Shorter clips lower first-frame latency but reduce temporal stability. Independent from the export/preview maximum clip duration."
+msgstr "即時預覽計算中每個切片的影格數。切片越短首幀延遲越低，但時間穩定性越弱。與原版匯出/預覽的最大切片影格數相互獨立。"
 
 msgid "Buffer window"
 msgstr "緩衝視窗"
 
 msgid "Cold-start lead"
-msgstr "冷啟動超前量"
+msgstr "冷啟動提前量"
 
-msgid "How many clips ahead of the play position the AI starts after opening a file or seeking. The lead region plays the original until the AI catches up. Increase this if playback keeps falling back to the original right after a seek; decrease it to shorten the original-frame lead-in."
-msgstr "開啟檔案或跳轉後，AI 從播放位置之前多少個切片處開始處理。超前區段會先播放原片，直到 AI 追上。如果跳轉後播放總是回退到原片，就調大此值；想縮短開頭的原片時長，就調小。"
+msgid "To avoid AI processing always lagging behind playback, after seeking the AI skips ahead by N clips to process unreached frames. Ideally this switches smoothly to AI frames within the set lead time. Increase if AI can't keep up; decrease to shorten original frames at the start."
+msgstr "為避免 AI 處理進度始終落後畫面，跳轉進度條後，AI 會直接跳過當前 N 個片段長度的任務，搶跑處理未播放到的畫面，理想情況會在設定的提前時間內順滑切換至 AI 畫面。如果 AI 始終難以追上，建議調大此值；想縮短開頭的原片時長，則調小。"
 
-msgid "How many frames ahead of the play position the AI is allowed to work. Larger values let the AI build up a bigger lead of restored frames during easy stretches to spend on hard ones, at the cost of more memory. Limited by available memory."
-msgstr "AI 允許在播放位置之前多少影格內工作。值越大，AI 能在簡單片段囤積更多去碼影格、留給困難片段消費，代價是佔用更多記憶體。受可用記憶體限制。"
+msgid "How many frames to preload. Larger values let the AI load further ahead, making continuous playback more stable."
+msgstr "預先載入多少幀的畫面。值越大，AI 能提前載入更遠的影片，使連續播放更穩定。"
 
-msgid "GPU processing rate"
-msgstr "GPU 處理影格率"
+msgid "Detection rate"
+msgstr "偵測幀率"
 
-msgid "Restored frames produced per second"
-msgstr "每秒產出的去碼影格數"
+msgid "Restoration rate"
+msgstr "修復幀率"
 
-msgid "Ahead / behind"
-msgstr "超前 / 落後"
-
-msgid "Processed frames relative to the playhead"
-msgstr "已處理影格相對播放頭的位置"
-
-msgid "ahead {ahead} / behind {behind} frames"
-msgstr "超前 {ahead} 影格 / 落後 {behind} 影格"
+msgid "Buffer progress"
+msgstr "緩衝進度"
 
 msgid "AI hit rate"
 msgstr "AI 命中率"
-
-msgid "Share of frames shown from the AI model vs original fallback"
-msgstr "顯示 AI 去碼影格 vs 回退原片的佔比"
 
 msgid "Discarded frames"
 msgstr "丟棄影格數"
@@ -424,7 +415,10 @@ msgid "Switch to Export View"
 msgstr "切換至輸出畫面"
 
 msgid "Switch to Watch View"
-msgstr "切換至輸出畫面"
+msgstr "切換至觀看畫面"
+
+msgid "Loading models…"
+msgstr "正在載入模型…"
 
 msgid "Select one or multiple video files"
 msgstr "選擇單個或多個影片檔"
@@ -797,8 +791,8 @@ msgstr "AV1, SVT-AV1 軟體編碼器,畫質無明顯差異,檔案更小"
 msgid "Build acceleration engines"
 msgstr "建構加速引擎"
 
-msgid "A one-time setup is needed to enable GPU acceleration."
-msgstr "啟用 GPU 加速需要一次性的初始設定。"
+msgid "A one-time initialization is needed to enable GPU acceleration."
+msgstr "啟用 GPU 加速需要先初始化。"
 
 msgid "Later"
 msgstr "稍後再說"
@@ -812,8 +806,8 @@ msgstr "確定"
 msgid "Building acceleration engines…"
 msgstr "正在建構加速引擎…"
 
-msgid "This runs once and may take several minutes. It cannot be cancelled."
-msgstr "此程序僅需一次,可能耗時數分鐘,且無法取消。"
+msgid "This runs once and may take several minutes. It cannot be interrupted."
+msgstr "此程序僅需一次，可能耗時數分鐘，且無法中斷。"
 
 msgid "No Nvidia GPU detected. GPU acceleration is unavailable; the slower PyTorch path will be used."
 msgstr "未偵測到 Nvidia 顯示卡。GPU 加速無法使用,將改用較慢的 PyTorch 路徑。"
@@ -826,8 +820,8 @@ msgid "Select the GPU to accelerate, then build its engines. This one-time setup
 msgstr "選擇要加速的顯示卡,然後建構其引擎。此一次性設定可能耗時數分鐘且無法取消。所選顯示卡也將用於處理。"
 
 #, python-brace-format
-msgid "Build GPU acceleration engines for {gpu}? This one-time setup may take several minutes and cannot be cancelled. Without it the slower PyTorch path is used until the engines are built."
-msgstr "要為 {gpu} 建構 GPU 加速引擎嗎?此一次性設定可能耗時數分鐘且無法取消。在建構完成前將使用較慢的 PyTorch 路徑。"
+msgid "Build GPU acceleration engines for {gpu}? Only needs to be built once, may take several minutes, and cannot be interrupted."
+msgstr "要為 {gpu} 建構 GPU 加速引擎嗎？僅需初次建構一次，可能耗時數分鐘，且無法中斷。"
 
 msgid "Building acceleration engines failed. The slower PyTorch path will be used."
 msgstr "建構加速引擎失敗。將改用較慢的 PyTorch 路徑。"

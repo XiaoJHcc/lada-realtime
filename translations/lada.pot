@@ -422,6 +422,61 @@ msgstr ""
 msgid "Watch"
 msgstr ""
 
+#: lada/gui/config/config_sidebar.ui:85
+msgid "Realtime playback"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:89
+msgid "Realtime clip length"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:90
+msgid "Number of frames per clip in the realtime preview. Shorter clips lower first-frame latency but reduce temporal stability. Independent from the export/preview maximum clip duration."
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:121
+msgid "Buffer window"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:105
+msgid "Cold-start lead"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:106
+msgid "To avoid AI processing always lagging behind playback, after seeking the AI skips ahead by N clips to process unreached frames. Ideally this switches smoothly to AI frames within the set lead time. Increase if AI can't keep up; decrease to shorten original frames at the start."
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:122
+msgid "How many frames to preload. Larger values let the AI load further ahead, making continuous playback more stable."
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:137
+msgid "Detection rate"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:153
+msgid "Restoration rate"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:169
+msgid "Buffer progress"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:181
+msgid "AI hit rate"
+msgstr ""
+
+msgid "Discarded frames"
+msgstr ""
+
+#: lada/gui/config/config_sidebar.ui:198
+msgid "Restored frames the playhead passed before they could be shown"
+msgstr ""
+
+#: lada/gui/realtime/realtime_view.ui:255
+msgid "Loading models…"
+msgstr ""
+
 #: lada/gui/config/config_sidebar.ui:370
 msgid "Reset to factory settings"
 msgstr ""
@@ -823,4 +878,94 @@ msgstr ""
 
 #: lada/utils/encoding_presets.csv:10
 msgid "AV1, SVT-AV1 software encoder, Indistinguishable Quality, Smaller File Size"
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.ui:14
+msgid "Build acceleration engines"
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.ui:41
+msgid "A one-time initialization is needed to enable GPU acceleration."
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.ui:60
+msgid "Later"
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.ui:66
+msgid "Build now"
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.ui:77
+msgid "OK"
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.ui:111
+msgid "Building acceleration engines…"
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.ui:119
+msgid "This runs once and may take several minutes. It cannot be interrupted."
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.py:104
+msgid "No Nvidia GPU detected. GPU acceleration is unavailable; the slower PyTorch path will be used."
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.py:106
+msgid "TensorRT acceleration requires FP16, which is currently disabled. The PyTorch path will be used. Enable FP16 in settings to build acceleration engines."
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.py:121
+#, python-brace-format
+msgid "Select the GPU to accelerate, then build its engines. This one-time setup may take several minutes and cannot be cancelled. The selected GPU will also be used for processing."
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.py:136
+#, python-brace-format
+msgid "Build GPU acceleration engines for {gpu}? Only needs to be built once, may take several minutes, and cannot be interrupted."
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.py:205
+msgid "Building acceleration engines failed. The slower PyTorch path will be used."
+msgstr ""
+
+#: lada/gui/trt_setup_dialog.py:207
+#, python-brace-format
+msgid "Building acceleration engines failed ({error}). The slower PyTorch path will be used."
+msgstr ""
+
+#: lada/cli/main.py:95
+msgid "Precompile the TensorRT acceleration engines for the current GPU and exit. Run this once after installation so the first real playback/export doesn't block on a multi-minute compile. Requires an Nvidia GPU with FP16. (Nvidia only)"
+msgstr ""
+
+#: lada/cli/main.py:96
+msgid "TensorRT acceleration is disabled (LADA_BASICVSRPP_TRT=0). Nothing to build."
+msgstr ""
+
+#: lada/cli/main.py:97
+#, python-brace-format
+msgid "TensorRT acceleration only applies to basicvsrpp restoration models. '{name}' has no engines to build."
+msgstr ""
+
+#: lada/cli/main.py:98
+#, python-brace-format
+msgid "TensorRT acceleration requires an Nvidia (CUDA) GPU. Selected device: {device}."
+msgstr ""
+
+#: lada/cli/main.py:99
+msgid "TensorRT acceleration requires FP16. Re-run with --fp16."
+msgstr ""
+
+#: lada/cli/main.py:100
+#, python-brace-format
+msgid "Building TensorRT engines for {model} on {device} (clip upper bound {clip}). This runs once and may take several minutes…"
+msgstr ""
+
+#: lada/cli/main.py:101
+msgid "TensorRT engines ready."
+msgstr ""
+
+#: lada/cli/main.py:102
+msgid "TensorRT engine build did not complete (see messages above). The PyTorch path will be used at runtime."
 msgstr ""
