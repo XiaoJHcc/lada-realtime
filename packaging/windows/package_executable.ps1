@@ -179,6 +179,40 @@ function Create-7ZArchive {
 
     $env:Path = ($env:Programfiles + "\7-Zip;") + $env:Path
 
+    # Remove locally-compiled TRT sub-engines that may have leaked into dist/lada
+    # if the bundled app was run on this build machine after Create-EXE. These
+    # engines are keyed to this machine's GPU arch + TRT version (see
+    # *_sub_engines/*.engine names) and are useless to end users, who compile
+    # their own on first run (--build-trt-engines / first-launch dialog). Leaving
+    # them in adds ~500MB of dead weight to the archive.
+    Get-ChildItem "./dist/lada" -Recurse -Directory -Filter "*_sub_engines" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "Removing leaked local TRT engine cache: $($_.FullName)"
+        Remove-Item $_.FullName -Recurse -Force
+    }
+
+    # Belt-and-suspenders trim of packages the spec already lists in
+    # COMMON_EXCLUDES but that PyInstaller may still bundle (observed: polars's
+    # 129MB polars.pyd survived an excludes=["polars"] build — `excludes` act on
+    # the import graph and can be defeated by a hook/collect, a stale build, or a
+    # renamed distribution like polars-lts-cpu). These are leaf extension/data
+    # dirs with no startup runtime hook, so deleting them from the finished bundle
+    # is safe: lada never imports them and ultralytics only touches them in its
+    # function-scoped plotting/benchmark paths, which the inference path never
+    # hits. Verified by running the frozen lada-cli.exe through a full restore
+    # with these removed. NOTE: do NOT add tkinter/tcl here — its pyi_rth__tkinter
+    # runtime hook hard-checks _tcl_data at startup, so post-deleting it crashes
+    # the app ("FileNotFoundError: Tcl data directory ... not found"); tkinter
+    # must be dropped via the spec `excludes` (which also removes the hook). See
+    # the packaging section in CLAUDE.md.
+    $deadweight_dirs = @("polars", "matplotlib")
+    foreach ($name in $deadweight_dirs) {
+        $p = "./dist/lada/_internal/$name"
+        if (Test-Path $p) {
+            Write-Host "Removing excluded-but-bundled package: $p"
+            Remove-Item $p -Recurse -Force
+        }
+    }
+
     $archive_path = "./dist/lada-v{0}_windows_{1}.7z" -f $version,$extra
 
     # Delete files from prior runs

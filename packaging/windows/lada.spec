@@ -148,10 +148,11 @@ def get_gui_components(project_root_dir: str, common_datas: list, common_binarie
             },
         },
         runtime_hooks=common_runtime_hooks,
-        excludes=[],
+        excludes=COMMON_EXCLUDES,
         noarchive=False,
         optimize=0,
     )
+    _strip_torch_dlls(gui_a)
     gui_pyz = PYZ(gui_a.pure)
     gui_exe = EXE(
         gui_pyz,
@@ -180,10 +181,11 @@ def get_cli_components(project_root_dir: str, common_datas: list, common_binarie
         hookspath=[],
         hooksconfig={},
         runtime_hooks=common_runtime_hooks,
-        excludes=[],
+        excludes=COMMON_EXCLUDES,
         noarchive=False,
         optimize=0,
     )
+    _strip_torch_dlls(cli_a)
     cli_pyz = PYZ(cli_a.pure)
     cli_exe = EXE(
         cli_pyz,
@@ -216,6 +218,45 @@ def parser_args():
 
 args = parser_args()
 BUILD_EXTRA = args.extra.lower()
+
+# polars (~129MB) is pulled in transitively by ultralytics but only used in its
+# training / benchmark / plotting / wandb paths (all function-scoped `import
+# polars`). Lada's inference path never touches it, so exclude it from the
+# bundle. If a polars-using ultralytics code path is ever hit it will raise
+# ModuleNotFoundError, which is acceptable since those paths are dead here.
+#
+# matplotlib (~12MB) and tkinter/tcl-tk (~8MB) are the same story: matplotlib is
+# only reached by ultralytics' plotting paths (function-scoped imports) and
+# tkinter is not referenced anywhere in the lada package (verified by grep).
+# Excluding tkinter also drops the tcl/tk data dirs and tcl86t/tk86t DLLs its
+# PyInstaller hook would otherwise collect.
+COMMON_EXCLUDES = ["polars", "matplotlib", "tkinter"]
+
+# These torch CUDA DLLs ship inside the wheel but the inference path never loads
+# them: cuSOLVER-Mg is a multi-GPU dense LAPACK solver and cuRAND is the CUDA RNG
+# — neither is reachable from CNN inference (YOLO11 detect + BasicVSR++ restore,
+# TRT or PyTorch path). Verified two ways on this exact build: (1) a PE
+# import-table scan of all torch/lib DLLs found no static importer of either;
+# (2) renaming both out of torch/lib and running a real restore + detect on both
+# the TRT and PyTorch paths completes with finite output. Dropping them saves
+# ~229MB. Matched by basename (case-insensitive) against the collected binaries.
+STRIP_TORCH_DLLS = {
+    "cusolvermg64_11.dll",
+    "curand64_10.dll",
+    # cuDNN "advanced" engine library: RNN / multi-head-attention / CTC / fused
+    # ops. The demosaic pipeline is pure CNN (YOLO11 conv backbone; BasicVSR++ =
+    # conv + deformable conv + SPyNet optical flow) with no recurrent/attention
+    # ops, so cuDNN never dynamically loads this. Verified: removed from torch/lib
+    # and ran restore (PyTorch path, clip T=8/16/64) + YOLO detect, plus a full
+    # frozen lada-cli.exe export of the whole video — all finite, no crash. ~269MB.
+    "cudnn_adv64_9.dll",
+}
+
+def _strip_torch_dlls(analysis):
+    kept = [b for b in analysis.binaries if os.path.basename(b[0]).lower() not in STRIP_TORCH_DLLS]
+    dropped = len(analysis.binaries) - len(kept)
+    analysis.binaries = kept
+    print(f"-> [trim] dropped {dropped} torch DLL(s) ({', '.join(sorted(STRIP_TORCH_DLLS))})")
 
 project_root = get_project_root()
 

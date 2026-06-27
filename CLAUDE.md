@@ -177,6 +177,51 @@ CLI 直接可用：`lada-cli --input <video>`。
 
 入口点（`pyproject.toml [project.scripts]`）：`lada` → `lada.gui.main:main`，`lada-cli` → `lada.cli.main:main`。版本：`lada/__init__.py` `VERSION`（当前 `0.11.1-dev`）。
 
+### 分发包体积分析与裁剪（2026-06 调研）
+
+完整 nvidia 包约 **8G**（本机实测 dist 7.6G，本轮裁剪后 **6.9G**）。已逐项验证各大块的「可裁性」，按删除风险分三类。**🔴 类基于 PE 导入表硬验证（`pefile` 解析 `torch_cuda.dll` 等的静态导入表，脚本思路见下）+ cuDNN 子库实删硬崩，封死无需重查；🟡 类需逐个删除后跑真实 TRT 去码验证不崩才能坐实。2026-06-27 一轮把 `cudnn_adv`+`cusolverMg`+`curand`（DLL，共 498M）与 `polars`+`matplotlib`（模块，141M）实测安全并落地（见下表、`lada.spec`、`package_executable.ps1`）；cuDNN 其余引擎库实测硬崩归 🔴，scipy 实测需改代码归搁置 —— 🟡 已基本清空，裁剪到顶。**
+
+> **两个常见误解先纠正**：①「PyTorch 回退可裁、用户要回退去用原版」——**不成立**。TRT 实时路径 + YOLO 检测器都跑在 torch 上，`torch.Tensor` 是管线数据格式，torch 是地基不是可选模块。②「CLI 可裁省空间」——CLI 与 GUI **共用整个 `_internal/`**，无独占大依赖，删 `lada-cli.exe` 只省 ~46M。
+
+**🟢 确定可裁（代码零引用或函数内惰性 import，推理路径不碰）：**
+
+| 项 | 大小 | 状态 | 依据 |
+|---|---|---|---|
+| `model_weights/*_sub_engines` | ~496M | ✅ 已处理 | 本机 GPU 架构的 TRT 引擎缓存，构建后在 dist 跑过一次就漏进包；对用户无效（他们首次启动自编）。`package_executable.ps1` 的 `Create-7ZArchive` 压缩前清理。 |
+| polars | 129M | ✅ 已删（exclude，已出包验证） | ultralytics 训练/benchmark/plotting 路径函数内 `import polars`，lada 推理零引用。`lada.spec` `COMMON_EXCLUDES`。**踩过的坑**：旧 dist 里 `polars/polars.pyd` 仍 129M 一度让人以为 excludes 没生效 —— 实为那个 dist 构建于 COMMON_EXCLUDES 加入之前（HEAD 的 spec 没有该机制）。**2026-06-27 重新出包确认 `excludes=["polars"]` 干净生效**（新构建 `_internal/polars` 不存在）。`package_executable.ps1` 仍保留构建后删 `_internal/polars` 作廉价兜底（新构建里它是 no-op）。 |
+| matplotlib | 12M | ✅ 已删（exclude + 构建后清理） | 同 polars，ultralytics 函数内惰性 import，lada 零引用。`lada.spec` `COMMON_EXCLUDES` 排除 + `package_executable.ps1` 构建后删兜底。实测坐实：import 阻断器让 matplotlib 一律 `ModuleNotFoundError` 跑完整 `load_models`+restore+detect 链不崩（`scripts/exclude_sim_verify.py`）；**无启动钩子可安全后删**，当前 dist 已手删、冻结 exe 完整导出不崩。 |
+| tcl/tk（`_tcl_data`+tcl86t+tk86t） | ~8M | ✅ 已排除（仅构建期生效） | `excludes=["tkinter"]` 后 PyInstaller 既不收集数据/DLL，也不注入 `pyi_rth__tkinter` 运行时钩子。**关键坑：不能手删已构建 dist 的 `_tcl_data` —— 旧构建仍带该钩子，启动即 `FileNotFoundError: Tcl data directory ...\_tcl_data not found`。tcl/tk 只能靠 spec 在构建期排除，不能事后手删。** |
+| `torch/lib/cusolverMg64_11.dll` | 149M | ✅ 已删（实测安全） | 多 GPU dense LAPACK 求解器，推理路径不碰。两路验证：① PE 导入表扫 dist 全 37 个 torch DLL 无一静态导入；② 从 `torch/lib` 移走后跑真实 restore+detect（TRT 路径 + PyTorch 回退）均有限输出不崩（`scripts/dll_trim_verify.py`），且**真实冻结 `lada-cli.exe` 完整导出整段 test_video（3576 帧 100%）不崩**。本机无 CUDA toolkit/无系统副本，排除 PATH 回退掩盖。`lada.spec` `STRIP_TORCH_DLLS` 构建期 strip；当前 dist 已手删。 |
+| `torch/lib/curand64_10.dll` | 68M | ✅ 已删（实测安全） | CUDA RNG，CNN 推理不触发。验证同上（与 cusolverMg 一起测）。 |
+| `torch/lib/cudnn_adv64_9.dll` | 269M | ✅ 已删（实测安全） | cuDNN「advanced」引擎库（RNN / multi-head-attention / CTC / fused ops）。去码全是纯 CNN（YOLO 卷积 + BasicVSR++ 卷积/deform conv/SPyNet 光流），无 RNN/attention → cuDNN 不会动态加载它。验证：移走后 restore（PyTorch 路径 T=8/16/64）+ YOLO detect + **冻结 exe 完整导出整段视频**全过；本机无系统副本兜底。`lada.spec` `STRIP_TORCH_DLLS` strip；当前 dist 已手删。**唯一可删的 cuDNN 子库 —— 其余引擎库删了硬崩（见 🔴）。** |
+
+**🟡 仅剩需改代码才能动的：**
+
+| 项 | 大小 | 风险 | 备注 |
+|---|---|---|---|
+| scipy | 52M(+libs 20M) | ❌ 不可直接排除（需改代码，已搁置） | **实测排不掉**：`load_model`→`register_all_modules()`→`mosaic_video_dataset`(训练模块，顶层 import)→`transforms`→`degradations.py` `from scipy import special`，BasicVSR++ **模型加载期**即把训练侧 degradations 拉进来。`exclude_sim_verify.py scipy` 在 `load_models` 阶段直接 `ModuleNotFoundError`。要省须把训练专用 import 从推理注册路径延迟化（动 `register_all_modules` / `mosaic_video_dataset` / `transforms`），属改加载/注册路径，风险高于收益，暂搁。 |
+
+**🔴 封死（加载时刚性依赖 / 方案地基，无裁剪空间）：**
+
+- **torch 核心 CUDA DLL ~1.7G**：`cublas64_12`/`cublasLt64_12`(644M)/`cufft64_11`(264M)/`cusolver64_11`(216M)/`cusparse64_12`(362M)/`cudnn64_9` 全在 `torch_cuda.dll` 的 **PE 导入表**里 → Windows loader 启动即解析，删任一个 `import torch` 直接 `DLL load failed`。`nvjitlink`(74M)被 `cusparse` 静态依赖，`cudart`/`cupti` 被 `torch_cpu` 依赖。
+- **cuDNN 引擎子库 ~690M（precompiled 490M / ops 120M / heuristic 54M / runtime_compiled 19M / cnn 4.6M / graph 2.4M）**：cuDNN 卷积执行时按 plan 动态 `LoadLibrary` 这些子库，**严格加载、无优雅回退**。实测删 `cudnn_engines_precompiled64_9.dll`(490M) 或 `cudnn_heuristic64_9.dll`(54M) 任一个，YOLO/BasicVSR++ 一跑就 `CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED` 硬崩——**连默认 TRT 路径也崩**（YOLO 检测器用 cuDNN 卷积，与 restorer 走不走 TRT 无关）。卷积是去码地基，全部保留。唯一例外 `cudnn_adv64_9.dll`（RNN/attention，269M）已删，见 🟢。
+- **tensorrt_libs 2.2G**（其中 `nvinfer_builder_resource` 单文件 1.7G）：保留 —— 用户机现编引擎（`--build-trt-engines` / 引导弹窗）必需，引擎绑 GPU 架构无法跨机预编，TRT 方案固有成本。
+- **ffmpeg.exe + ffprobe.exe 各 142M**：两者都在用（[video_utils.py:142](lada/utils/video_utils.py#L142) 读元数据、[audio_utils.py:41](lada/utils/audio_utils.py#L41) 读音频编码），且是两个独立 Gyan 静态构建（sha256 不同），无法去重。
+
+**验证手段（复用）**：
+- **PE 导入表硬验证**（`venv_release_win` 自带 `pefile`）：判断某 DLL 是否「加载时刚性依赖」= 解析依赖它的 torch DLL 的 `IMAGE_DIRECTORY_ENTRY_IMPORT`，目标 DLL 在导入表里即刚性、删了崩；不在表里则可能是运行时 dlopen（如 cuDNN 子库），需实跑验证。一次性脚本思路见本轮 `cusolverMg`/`curand` 验证。
+- **运行时去码验证脚本**（本轮新增，验剩余 🟡 直接复用）：`scripts/dll_trim_verify.py` —— `load_models`（内部已 warmup BasicVSR++ + YOLO）+ 真实 clip restore + 真实帧 detect，检查有限输出；配合 shell 把目标 DLL 从 `.venv/Lib/site-packages/torch/lib` 改名移走→跑→还原（trap 保证还原）。`scripts/exclude_sim_verify.py <模块名>` —— 用 meta-path 阻断器模拟 PyInstaller `excludes`，验「排除某 Python 模块是否破坏加载链」（无需动文件）。
+- **冻结产物烟测**（最终确认）：从项目根跑 `dist/lada/lada-cli.exe --input test_video.mp4 --output ... --device cuda`，frozen 模式权重目录是 bundle 内 `_internal/model_weights`（运行时钩子指定），把 `model_weights/*_sub_engines` 拷进去可跳过现编。**注意系统若装了 CUDA toolkit，PATH 上的同名 DLL 会掩盖真实依赖 → 验证机须无 CUDA toolkit / 无系统副本（本机已确认）。**
+
+小结：本轮已落地（2026-06-27）——
+- **当前已构建 dist（手删，立即生效，7.6G→6.9G，约 640MB）**：`cudnn_adv64_9.dll`(269M) + `cusolverMg`(157M) + `curand`(72M) DLL + `polars`(129M) + `matplotlib`(12M)，均冻结 `lada-cli.exe` 完整导出整段 test_video（3576 帧）验证不崩。tcl/tk(8M) 不能手删（tkinter 启动钩子），留待下次构建。
+- **构建期固化（下次构建自动生效，三套机制按可靠性分工）**：① DLL（cusolverMg/curand/cudnn_adv）走 `lada.spec` `STRIP_TORCH_DLLS`（直接过滤 binaries TOC，**确定**）；② tkinter 只能走 `lada.spec` `COMMON_EXCLUDES`（排除即不注入 `pyi_rth__tkinter` 钩子，**唯一可行路**）；③ polars/matplotlib 走 `COMMON_EXCLUDES` **＋** `package_executable.ps1` 构建后删 `_internal/{polars,matplotlib}`（**双保险** —— 因 `excludes` 实测可能被 hook/改名分发打败，polars 就没排掉）。下次构建总省约 **648M**（DLL 498M + polars 129M + matplotlib 12M + tcltk 8M），另叠加已有的 sub_engines 清理。
+- **已出包验证（2026-06-27，复刻 `Create-EXE` 完整 GUI 构建）**：① `STRIP_TORCH_DLLS` 生效 —— 日志两次 `-> [trim] dropped 3 torch DLL(s) (cudnn_adv64_9.dll, curand64_10.dll, cusolvermg64_11.dll)`（cli_a + gui_a 各一），新 dist 三个 DLL 全不存在；② `COMMON_EXCLUDES` 干净生效 —— 新 dist 里 polars/matplotlib/tkinter/_tkinter.pyd/_tcl_data/tcl86t.dll **全部不存在**（连带 `pyi_rth__tkinter` 钩子不注入 → 无启动崩溃）；③ 重建 `lada-cli.exe --version` 正常启动、跑真实去码完整导出整段 test_video（3576 帧，exit 0）；④ 构建后清理为 no-op（excludes 已删干净）。BUILD_EXIT_CODE=0，体积 6.9G。**注意 PowerShell 坑**：`uv run pyinstaller` 的 INFO 走 stderr，PS5.1 把原生命令 stderr 包成 NativeCommandError，叠加 `$ErrorActionPreference=Stop` 会让构建首行即中断 —— 复刻 `Create-EXE` 调试时用 bash 跑 `venv_release_win/Scripts/python.exe -m PyInstaller ... > log 2>&1` 最稳。
+- **教训**：① PyInstaller `excludes` 在干净构建里可靠生效（上面已验），但**旧 dist 可能保留构建前的包**（polars 一度让人误判）—— 看体积要认准「重新构建后」的 dist，别拿旧 artifact 下结论；体积关键且无启动钩子的 leaf 包再叠加构建后 `Remove-Item` 兜底零成本。有启动钩子的（tkinter）反过来**只能**靠 excludes（构建后删 `_tcl_data` 会触发 `pyi_rth__tkinter` 启动崩）。② cuDNN 子库严格加载、无优雅回退，删错直接 `CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`，验证机务必无系统 CUDA toolkit（否则 PATH 同名 DLL 会掩盖真实依赖）。
+- **裁剪基本到顶**：剩余大块全是 🔴 地基（torch 核心 CUDA 1.7G、cuDNN 引擎库 690M、tensorrt_libs 2.2G、ffmpeg/ffprobe 284M）。仅剩 scipy(52M+20M) 需改加载/注册路径代码才能动（搁置）。除非换更小的依赖方案，否则 6.9G 已接近 nvidia+TRT 包的下界。
+
+
+
 ### 日常最简运行流程（环境已装好后）
 
 前提：`.venv` 已建好并 `uv sync`、patches 已打、`model_weights/` 已下载（至少 `v4_fast` + `generic_v1.2`）、GUI 还需 `build_gtk/gtk` 就位且 pygobject/pycairo wheel 已装进 `.venv`。
