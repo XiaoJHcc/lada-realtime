@@ -84,11 +84,6 @@ This section provides instructions for installing the app (CLI and GUI) from sou
    wget 'https://huggingface.co/ladaapp/lada/resolve/main/lada_mosaic_restoration_model_generic_v1.2.pth?download=true' -O model_weights/lada_mosaic_restoration_model_generic_v1.2.pth
    ```
 
-   If you're interested in running DeepMosaics' restoration model you can also download their pretrained model `clean_youknow_video.pth`
-   ```shell
-   wget 'https://drive.usercontent.google.com/download?id=1ulct4RhRxQp1v5xwEmUH7xz7AK42Oqlw&export=download&confirm=t' -O model_weights/3rd_party/clean_youknow_video.pth
-   ```
-
 You can now run the CLI with `lada-cli`.
 
 > [!TIP]

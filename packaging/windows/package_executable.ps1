@@ -108,7 +108,6 @@ function Download-ModelWeights {
 
     Download 'https://huggingface.co/ladaapp/lada/resolve/main/lada_mosaic_detection_model_v4_fast.pt?download=true' "lada_mosaic_detection_model_v4_fast.pt" "9a6b660d1d3e3797d39515e08b0e72fcc59815f38279faa7a4ab374ab2c1e3b4"
     Download 'https://huggingface.co/ladaapp/lada/resolve/main/lada_mosaic_restoration_model_generic_v1.2.pth?download=true' "lada_mosaic_restoration_model_generic_v1.2.pth" "d404152576ce64fb5b2f315c03062709dac4f5f8548934866cd01c823c8104ee"
-    Download 'https://drive.usercontent.google.com/download?id=1ulct4RhRxQp1v5xwEmUH7xz7AK42Oqlw&export=download&confirm=t' "3rd_party\clean_youknow_video.pth" "5643ca297c13920b8ffd39a0d85296e494683a69e5e8204d662653d24c582766"
 }
 
 function Install-PythonDependencies {

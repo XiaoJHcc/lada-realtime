@@ -785,9 +785,6 @@ msgstr "Ctrl+C gedetecteerd — het herstel wordt afgebroken."
 msgid "Latest Lada restoration model. Recommended"
 msgstr "Het nieuwste Lada restauratie model. Aanbevolen"
 
-msgid "Restoration model from abandoned DeepMosaics project"
-msgstr "Restauratie model van het afgebroken DeepMosaics project"
-
 msgid "Fast and efficient. Recommended"
 msgstr "Snel en efficiënt. Aanbevolen"
 

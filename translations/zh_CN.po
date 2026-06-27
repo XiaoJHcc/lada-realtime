@@ -745,9 +745,6 @@ msgstr "检测到 Ctrl-C 信号，正在终止修复。"
 msgid "Latest Lada restoration model. Recommended"
 msgstr "最新版 Lada 修复模型。推荐"
 
-msgid "Restoration model from abandoned DeepMosaics project"
-msgstr "源自 DeepMosaics 项目的修复模型，已停止维护"
-
 msgid "Fast and efficient. Recommended"
 msgstr "快速高效，推荐"
 

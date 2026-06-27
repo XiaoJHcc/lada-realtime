@@ -87,7 +87,6 @@ class ModelFiles:
         ModelFile('basicvsrpp-v1.0', None, os.path.join(MODEL_WEIGHTS_DIR, 'lada_mosaic_restoration_model_generic.pth')),
         ModelFile('basicvsrpp-v1.1', None, os.path.join(MODEL_WEIGHTS_DIR, 'lada_mosaic_restoration_model_generic_v1.1.pth')),
         ModelFile('basicvsrpp-v1.2', _("Latest Lada restoration model. Recommended"), os.path.join(MODEL_WEIGHTS_DIR, 'lada_mosaic_restoration_model_generic_v1.2.pth')),
-        ModelFile('deepmosaics', _("Restoration model from abandoned DeepMosaics project"), os.path.join(MODEL_WEIGHTS_DIR, '3rd_party', 'clean_youknow_video.pth')),
     ]
     _WELL_KNOWN_DETECTION_MODELS = [
         ModelFile('v2', None, os.path.join(MODEL_WEIGHTS_DIR, 'lada_mosaic_detection_model_v2.pt')),
@@ -124,9 +123,7 @@ class ModelFiles:
                 model_name = os.path.splitext(filename)[0].split("lada_mosaic_restoration_model_")[1]
                 if len(model_name) == 0:
                     continue
-                if not model_name.startswith("deepmosaics") and "deepmosaics" in model_name:
-                    model_name = f"deepmosaics-{model_name}"
-                elif not model_name.startswith("basicvsrpp"):
+                if not model_name.startswith("basicvsrpp"):
                     model_name = f"basicvsrpp-{model_name}"
                 model_path = os.path.join(MODEL_WEIGHTS_DIR, filename)
                 models.append(ModelFile(model_name, None, model_path))

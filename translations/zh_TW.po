@@ -744,9 +744,6 @@ msgstr "接收到 Ctrl-C, 停止修復."
 msgid "Latest Lada restoration model. Recommended"
 msgstr "最新版Lada修復模型. 推薦"
 
-msgid "Restoration model from abandoned DeepMosaics project"
-msgstr "廢棄的DeepMosaics專案中的恢復模型"
-
 msgid "Fast and efficient. Recommended"
 msgstr "快速且高效. 推薦"
 

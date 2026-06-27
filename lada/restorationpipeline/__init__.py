@@ -37,14 +37,7 @@ def load_models(
     mosaic_detection_model_path: str,
     fp16: bool,
     detect_face_mosaics: bool):
-    if mosaic_restoration_model_name.startswith("deepmosaics"):
-        from lada.models.deepmosaics.models import loadmodel
-        from lada.restorationpipeline.deepmosaics_mosaic_restorer import DeepmosaicsMosaicRestorer
-        report_load_progress(_("Loading restoration model…"))
-        _model = loadmodel.video(device, mosaic_restoration_model_path, fp16)
-        mosaic_restoration_model = DeepmosaicsMosaicRestorer(_model, device)
-        pad_mode = 'reflect'
-    elif mosaic_restoration_model_name.startswith("basicvsrpp"):
+    if mosaic_restoration_model_name.startswith("basicvsrpp"):
         from lada.models.basicvsrpp.inference import load_model
         from lada.restorationpipeline.basicvsrpp_mosaic_restorer import BasicvsrppMosaicRestorer
         report_load_progress(_("Loading restoration model…"))

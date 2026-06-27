@@ -69,7 +69,7 @@ class FrameRestorer:
         self.start_stop_lock: threading.Lock = threading.Lock()
         self.stop_requested = False
 
-        # Production-side throughput counter: total frames BasicVSR++/DeepMosaics has actually
+        # Production-side throughput counter: total frames BasicVSR++ has actually
         # restored. Monotonic, never reset on pause -> sampling it twice gives the true
         # restoration rate even while playback is paused or falling back to passthrough.
         self._restorer_frames_done = 0
@@ -216,11 +216,7 @@ class FrameRestorer:
                 frame_feeder_queue/max-qsize: {self.mosaic_detector.frame_feeder_queue.stats[f"{self.mosaic_detector.frame_feeder_queue.name}_max_size"]}/{self.mosaic_detector.frame_feeder_queue.maxsize}"""))
 
     def _restore_clip_frames(self, images: list[ImageTensor]):
-        if self.mosaic_restoration_model_name.startswith("deepmosaics"):
-            from lada.restorationpipeline.deepmosaics_mosaic_restorer import DeepmosaicsMosaicRestorer
-            assert isinstance(self.mosaic_restoration_model, DeepmosaicsMosaicRestorer)
-            restored_clip_images = self.mosaic_restoration_model.restore(images)
-        elif self.mosaic_restoration_model_name.startswith("basicvsrpp"):
+        if self.mosaic_restoration_model_name.startswith("basicvsrpp"):
             from lada.restorationpipeline.basicvsrpp_mosaic_restorer import BasicvsrppMosaicRestorer
             assert isinstance(self.mosaic_restoration_model, BasicvsrppMosaicRestorer)
             restored_clip_images = self.mosaic_restoration_model.restore(images)
@@ -432,7 +428,7 @@ class FrameRestorer:
         return self.frame_restoration_queue
 
     def get_restorer_frames_done(self) -> int:
-        """Total frames the restoration model (BasicVSR++/DeepMosaics) has restored so far
+        """Total frames the restoration model (BasicVSR++) has restored so far
         (monotonic). Sample twice and divide by elapsed wall time to get the restoration fps."""
         with self._restorer_frames_lock:
             return self._restorer_frames_done

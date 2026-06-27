@@ -276,7 +276,7 @@ def main():
         mosaic_restoration_model_path = restoration_modelfile.path
     elif os.path.isfile(args.mosaic_restoration_model):
         mosaic_restoration_model_path = args.mosaic_restoration_model
-        mosaic_restoration_model_name = 'basicvsrpp' # Assume custom model is basicvsrpp. DeepMosaics custom path is not supported
+        mosaic_restoration_model_name = 'basicvsrpp' # Assume custom model is basicvsrpp
     else:
         print(_("Invalid mosaic restoration model"))
         sys.exit(1)

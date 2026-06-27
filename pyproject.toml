@@ -49,9 +49,9 @@ packages = { find = { where = ["."], include = ["lada", "lada.*"] } }
 version = { attr = "lada.VERSION" }
 
 [project.optional-dependencies]
-# Nvidia extras are still on 2.8 as 2.9.[01] causes a performance regression in DeepMosaics caused by conv3d regression in nvidia-cudnn.
-# There would be a workaround though https://github.com/pytorch/pytorch/releases/tag/v2.9.1
-# Will probably skip and wait for PyTorch 2.10 release
+# Nvidia extras are pinned to torch 2.8: it's the validated stack and torch-tensorrt 2.8 (the
+# BasicVSR++ TRT path) is bound to it. 2.9.[01] also had a conv3d/nvidia-cudnn perf regression
+# (workaround in https://github.com/pytorch/pytorch/releases/tag/v2.9.1). Likely wait for PyTorch 2.10.
 nvidia-legacy = ["torch==2.8.0; sys_platform == 'linux' or sys_platform == 'win32'", "torchvision==0.23.0; sys_platform == 'linux' or sys_platform == 'win32'"]
 nvidia = ["torch==2.8.0; sys_platform == 'linux' or sys_platform == 'win32'", "torchvision==0.23.0; sys_platform == 'linux' or sys_platform == 'win32'", "torch-tensorrt==2.8.0; sys_platform == 'linux' or sys_platform == 'win32'", "tensorrt-cu12-libs==10.12.0.36; sys_platform == 'linux' or sys_platform == 'win32'", "tensorrt-cu12-bindings==10.12.0.36; sys_platform == 'linux' or sys_platform == 'win32'"]
 intel = ["torch==2.9.1; sys_platform == 'linux' or sys_platform == 'win32'", "torchvision==0.24.1; sys_platform == 'linux' or sys_platform == 'win32'", "pytorch-triton-xpu ; sys_platform == 'win32' or sys_platform == 'linux'"]

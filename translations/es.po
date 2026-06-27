@@ -785,9 +785,6 @@ msgstr "Ctrl-C detectado. Deteniendo Procesado."
 msgid "Latest Lada restoration model. Recommended"
 msgstr "Último modelo restaurado de Lada. Recomendado"
 
-msgid "Restoration model from abandoned DeepMosaics project"
-msgstr "Modelo de restauración abandonado DeepMosaics"
-
 msgid "Fast and efficient. Recommended"
 msgstr "Rápido y Eficiente. Recomendado"
 

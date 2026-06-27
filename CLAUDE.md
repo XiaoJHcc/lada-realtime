@@ -56,7 +56,7 @@
 - **PyTorch**：推理后端。设备可为 `cuda`（Nvidia）、`xpu`（Intel Arc）、`mps`（Apple Silicon）、`cpu`。Nvidia 走 `torch==2.8.0` + cu128。
 - **模型**：
   - **马赛克检测** = YOLO11 分割模型（Ultralytics，`.pt`）。
-  - **马赛克修复** = **BasicVSR++**（`basicvsrpp-v1.2`，`.pth`），一个**时间维度（temporal）模型** —— 它一次吃进一段连续帧（clip）来降低帧间闪烁。也可选 DeepMosaics。
+  - **马赛克修复** = **BasicVSR++**（`basicvsrpp-v1.2`，`.pth`），一个**时间维度（temporal）模型** —— 它一次吃进一段连续帧（clip）来降低帧间闪烁。（原项目可选的 DeepMosaics 修复模型已在本 fork 移除。）
 - **GUI**：GTK4 + libadwaita（PyGObject）。视频播放完全基于 **GStreamer** 管线，AI 帧通过自定义 `AppSrc` 注入，最终渲染到 `gtk4paintablesink`。
 - **视频 I/O**：PyAV（解码，`VideoReader`）、FFmpeg/`av`（导出编码，`VideoWriter`）、`ffprobe`（元数据）。
 - **打包**：Windows/macOS 用 PyInstaller（`packaging/windows`、`packaging/macOS`）；Linux 用 Flatpak（`packaging/flatpak`）与 Docker（`packaging/docker`）。
@@ -84,8 +84,7 @@ lada/
     frame_restorer.py            ★★★ FrameRestorer：编排 5 个工作线程 + 队列；set_processing_frontier（默认关闭闸门）
     mosaic_detector.py           ★★★ MosaicDetector：检测 + 把帧聚成 Clip（含 max_clip_length + feeder 处理前沿闸门）
     basicvsrpp_mosaic_restorer.py  BasicVSR++ 推理封装（restore(clip)）
-    deepmosaics_mosaic_restorer.py
-  models/                  模型定义（basicvsrpp/、yolo/、deepmosaics/ 等）
+  models/                  模型定义（basicvsrpp/、yolo/ 等）
   utils/                   video_utils（VideoReader/Writer/seek）、threading_utils（PipelineQueue/线程/marker）、image_utils、mask_utils 等
   datasetcreation/         数据集制作（与实时无关）
 configs/                   训练/模型配置

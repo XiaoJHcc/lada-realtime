@@ -63,12 +63,6 @@ This section provides instructions for installing Lada from source on macOS: the
    curl -L -o model_weights/lada_mosaic_restoration_model_generic_v1.2.pth 'https://huggingface.co/ladaapp/lada/resolve/main/lada_mosaic_restoration_model_generic_v1.2.pth?download=true'
    ```
 
-   For DeepMosaics restoration you can also download their pretrained model:
-
-   ```bash
-   curl -L -o model_weights/3rd_party/clean_youknow_video.pth 'https://drive.usercontent.google.com/download?id=1ulct4RhRxQp1v5xwEmUH7xz7AK42Oqlw&export=download&confirm=t'
-   ```
-
 You can now run the CLI with `lada-cli`.
 
 > [!TIP]

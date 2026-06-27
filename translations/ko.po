@@ -767,9 +767,6 @@ msgstr "Ctrl-C 입력을 받으면, 제거작업을 중단합니다."
 msgid "Latest Lada restoration model. Recommended"
 msgstr "최신 Lada 모자이크제거 모델. 추천"
 
-msgid "Restoration model from abandoned DeepMosaics project"
-msgstr "중단된 DeepMosaics 프로젝트에서 나온 모자이크제거 모델"
-
 msgid "Fast and efficient. Recommended"
 msgstr "빠르고 효율적입니다. 추천"
 

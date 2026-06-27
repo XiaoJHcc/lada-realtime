@@ -48,8 +48,8 @@ The script runs these in order (each roughly idempotent — re-running with `-sk
 2. **`Build-SystemDependencies`** (gvsbuild): compiles GTK4, libadwaita, GStreamer + plugins
    into `build_gtk_release/`. Slow (tens of minutes to hours). See [gvsbuild pitfalls](#gvsbuild-pitfalls).
 3. **`Compile-Translations`**: `.po` → `.mo` using the freshly built `msgfmt.exe`.
-4. **`Download-ModelWeights`**: detection (`v4_fast`) + restoration (`generic_v1.2`) +
-   DeepMosaics weights into `model_weights/`.
+4. **`Download-ModelWeights`**: detection (`v4_fast`) + restoration (`generic_v1.2`)
+   into `model_weights/`.
 5. **`Install-PythonDependencies`**: creates `venv_release_win`, runs
    `uv sync --frozen --extra nvidia`, swaps `polars` → `polars-lts-cpu`, installs the
    project + pygobject/pycairo wheels + PyInstaller, applies the `patches/`.

@@ -797,9 +797,6 @@ msgstr "Réception de Ctrl-C, arrêt de la restauration."
 msgid "Latest Lada restoration model. Recommended"
 msgstr "Dernier modèle de restauration par Lada. Recommandé"
 
-msgid "Restoration model from abandoned DeepMosaics project"
-msgstr "Modèle de restauration issu du projet abandonné DeepMosaics"
-
 msgid "Fast and efficient. Recommended"
 msgstr "Rapide et efficace. Recommandé"
 

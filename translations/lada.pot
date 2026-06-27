@@ -832,10 +832,6 @@ msgstr ""
 msgid "Latest Lada restoration model. Recommended"
 msgstr ""
 
-#: lada/__init__.py:80
-msgid "Restoration model from abandoned DeepMosaics project"
-msgstr ""
-
 #: lada/__init__.py:87
 msgid "Fast and efficient. Recommended"
 msgstr ""
