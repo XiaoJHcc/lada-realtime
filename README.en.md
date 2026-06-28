@@ -13,16 +13,12 @@
   <a href="README.md">中文</a>
 </p>
 
-> [!WARNING]
-> **Work in progress.**
 
 ## Motivation
 
 [lada](https://github.com/ladaapp/lada) is an AI mosaic-removal tool. The original is built for **offline export**, and its built-in preview is **not optimized for real-time playback** — as the upstream README puts it: To watch the restored video in real-time, you'll need a **powerful machine**.
 
-But isn't an RTX 4080 powerful enough? Export already runs at 30–45 fps, so the potential for real-time playback is clearly there — yet the upstream's buffer-first pacing makes it impractical for actually *watching* a video.
-
-This fork doesn't touch the models themselves. It only reworks AI task scheduling and the front-end playback strategy: keep playback going first, remove mosaics when the GPU can keep up.
+But I don't believe an RTX 4080 isn't powerful enough, so I forked lada — mainly optimizing AI task scheduling and front-end playback strategy: **keep playback going first, remove mosaics when the GPU can keep up**.
 
 ## What's Done
 
@@ -34,13 +30,15 @@ This fork doesn't touch the models themselves. It only reworks AI task schedulin
 
 **Scheduling: compute only what's about to be seen, and prefetch the future**
 
-- **Prefetch**: After a seek, the AI skips the frames right at the playhead and starts a short distance ahead. The original plays for that brief gap, and by the time the playhead catches up the restored frames are ready for a seamless switch.
 - **Bounded frontier**: Fixes the upstream behavior where the detector (YOLO) races ahead indefinitely; now it only processes the short window the restorer (BasicVSR++) needs for its next clip.
+- **Prefetch**: After a seek, the AI skips the frames right at the playhead and starts a short distance ahead. The original plays for that brief gap, and by the time the playhead catches up the restored frames are ready for a seamless switch. (If your GPU is strong enough, you can reduce the skip distance.)
+- **Smaller window**: Default to a shorter clip window for faster response, at the cost of some temporal stability. (If your GPU is strong enough, you can set a higher limit.)
+- **Lazy mode**: When multiple mosaic regions exist, restoration cost scales multiplicatively, so by default only one is restored — which may cause flickering. (If your GPU is strong enough, you can raise the limit.)
 - **Warmup**: Run a dummy pass right after loading so the GPU's one-time initialization cost is paid during load, not on the first real frame.
-- **Smaller window**: Default to a shorter clip window for faster response, at the cost of some temporal stability.
 
 **TensorRT acceleration (Nvidia)**
 
+- Approach inspired by [jasna](https://github.com/Kruk2/jasna) — another developer who also optimized lada, though with a near-total rewrite. I referenced the acceleration idea and re-implemented it on top of the original lada.
 - Splits the BasicVSR++ restorer into 6 TensorRT sub-engines — a measured **3–4× speedup** of restorer inference when it has the GPU to itself. Nvidia + FP16 only; everything else falls back to PyTorch seamlessly.
 - Engines are bound to the GPU architecture + TensorRT version, so they are **compiled once locally on first run** (~10–15 minutes, one time). Swapping GPUs or upgrading TensorRT invalidates them and triggers a rebuild. See "Build & Distribution" below.
 
