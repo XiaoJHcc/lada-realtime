@@ -32,3 +32,7 @@ scripts/trt_validate*.log
 # Local test media
 /test_video*.mp4
 .mimocode
+mimo.exe
+
+# Realtime per-frame trace output (diagnostics scratch; regenerated via LADA_REALTIME_TRACE)
+/realtime_trace*/

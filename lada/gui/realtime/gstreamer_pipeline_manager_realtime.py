@@ -24,6 +24,7 @@ from gi.repository import GLib, Gst, Gdk
 from lada import LOG_LEVEL
 from lada.gui.watch.gstreamer_pipeline_manager import PipelineManager
 from lada.gui.realtime.gstreamer_pipeline_appsrc_realtime import RealtimeFrameRestorerAppSrc
+from lada.gui.realtime import realtime_trace
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=LOG_LEVEL)
@@ -51,6 +52,10 @@ class RealtimePipelineManager(PipelineManager):
         self.pipeline.add(buffer_queue)
 
         gtksink = Gst.ElementFactory.make('gtk4paintablesink', None)
+        # Keep a reference to the actual sink element for diagnostics (pad probe + GstBaseSink
+        # stats). It's the real consumer that syncs to the clock, so a buffer pad probe on its
+        # sink pad measures the true display cadence. Set always; only used when tracing is on.
+        self._trace_sink_element = gtksink
         paintable: Gdk.Paintable = gtksink.get_property('paintable')
         # TODO: workaround for #62 (same as watch path): on Windows + Nvidia, OpenGL paintable
         #  causes messed up colors, so don't use glsinkbin there.
@@ -74,6 +79,71 @@ class RealtimePipelineManager(PipelineManager):
         self.frame_restorer_app_src = appsrc
         self.paintable = paintable
         self.paintable.connect("invalidate-size", lambda obj: GLib.idle_add(lambda: self.emit("paintable-size-changed")))
+
+        # Diagnostics (LADA_REALTIME_TRACE only): measure the real DISPLAY cadence at the sink.
+        if realtime_trace.TRACE_ENABLED:
+            self._install_sink_trace(gtksink)
+
+    def _install_sink_trace(self, gtksink):
+        """Add a buffer pad probe on the sink pad + a periodic GstBaseSink-stats poll. The sink
+        syncs each buffer to the pipeline clock, so the pad's inter-arrival cadence is the
+        display cadence and (running_time at arrival - pts) is the per-frame lateness."""
+        tracer = realtime_trace.get_tracer()
+        if tracer is not None and self.video_metadata is not None:
+            tracer.set_fps_target(self.video_metadata.video_fps)
+        sink_pad = gtksink.get_static_pad('sink')
+        if sink_pad is not None:
+            sink_pad.add_probe(Gst.PadProbeType.BUFFER, self._on_sink_buffer_probe)
+        GLib.timeout_add(500, self._poll_sink_stats)
+
+    def _on_sink_buffer_probe(self, pad, info):
+        tracer = realtime_trace.get_tracer()
+        if tracer is None:
+            return Gst.PadProbeReturn.OK
+        try:
+            buf = info.get_buffer()
+            if buf is not None:
+                # running_time = clock now - element base time (segment starts at 0 for straight
+                # playback, so running_time ~= pts and lateness = running_time - pts is meaningful).
+                running_time = -1
+                clock = self.pipeline.get_clock()
+                if clock is not None:
+                    base = self._trace_sink_element.get_base_time()
+                    now = clock.get_time()
+                    if base is not None and base != Gst.CLOCK_TIME_NONE and now != Gst.CLOCK_TIME_NONE:
+                        running_time = int(now - base)
+                tracer.record_sink(int(buf.pts), time.perf_counter_ns(), running_time)
+        except Exception:
+            pass
+        return Gst.PadProbeReturn.OK
+
+    def _poll_sink_stats(self):
+        tracer = realtime_trace.get_tracer()
+        if tracer is None or getattr(self, "_trace_sink_element", None) is None:
+            return False  # tracing off -> stop the timeout
+        try:
+            st = self._trace_sink_element.get_property('stats')
+            def _g(name, default=0):
+                try:
+                    v = st.get_value(name)
+                    return v if v is not None else default
+                except Exception:
+                    return default
+            qlevel_ns = qbuffers = -1
+            try:
+                bq = getattr(self, "video_buffer_queue", None)
+                if bq is not None:
+                    qlevel_ns = int(bq.get_property('current-level-time'))
+                    qbuffers = int(bq.get_property('current-level-buffers'))
+            except Exception:
+                pass
+            tracer.record_sink_stats(time.perf_counter_ns(),
+                                     int(_g('rendered', 0)), int(_g('dropped', 0)),
+                                     float(_g('average-rate', 0.0)), qlevel_ns, qbuffers)
+        except Exception:
+            pass
+        tracer.maybe_log_rolling_summary()
+        return True
 
     def update_gst_buffers(self, buffer_queue_min_thresh_time, buffer_queue_max_thresh_time):
         # Realtime path ignores min-threshold-time entirely; only keep a jitter cap.

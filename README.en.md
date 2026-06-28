@@ -28,6 +28,8 @@ But I don't believe an RTX 4080 isn't powerful enough, so I forked lada — main
 
 > So you still need a powerful GPU — otherwise it just keeps falling back to the original.
 
+- **Smoother playback**: Fixed a persistent "dropped-frame" feel — previously the picture hitched slightly every few frames as on-screen frame durations kept fluctuating; now frames are paced evenly and it's visibly smoother.
+
 **Scheduling: compute only what's about to be seen, and prefetch the future**
 
 - **Bounded frontier**: Fixes the upstream behavior where the detector (YOLO) races ahead indefinitely; now it only processes the short window the restorer (BasicVSR++) needs for its next clip.

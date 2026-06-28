@@ -37,6 +37,7 @@ from gi.repository import Gst, GstApp, GObject
 
 from lada import LOG_LEVEL
 from lada.gui.frame_restorer_provider import FrameRestorerProvider, PassthroughFrameRestorer
+from lada.gui.realtime import realtime_trace
 from lada.gui.watch.gstreamer_pipeline_appsrc import GstPaddingHelpers
 from lada.utils import video_utils, VideoMetadata, threading_utils
 from lada.restorationpipeline.frame_restorer import FrameRestorer
@@ -480,7 +481,12 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
     def _get_next_frame_and_push_buffer(self) -> StopMarker | EofMarker | None:
         # master beat: read the next original frame sequentially (throttled by downstream
         # queue backpressure + sink clock). Never blocks on the AI source.
+        tracer = realtime_trace.get_tracer()  # None unless LADA_REALTIME_TRACE is set
+        _t_wait0 = time.perf_counter_ns() if tracer is not None else 0
         result = self.passthrough_restorer.get_frame_restoration_queue().get()
+        if tracer is not None:
+            _t_proc0 = time.perf_counter_ns()
+            _wait_ns = _t_proc0 - _t_wait0
         if self.appsource_thread_stop_requested:
             logger.debug("realtime appsource worker: passthrough consumer unblocked by stop")
             return STOP_MARKER
@@ -490,6 +496,7 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         passthrough_frame, frame_pts = result
         pts = int(frame_pts)
         frame = self._pick_frame(passthrough_frame, pts)
+        hit = frame is not passthrough_frame
 
         frame_timestamp_ns = int((frame_pts * self.video_metadata.time_base) * Gst.SECOND)
         frame = GstPaddingHelpers.pad_frame(frame)
@@ -515,6 +522,11 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
         buf.offset = video_utils.offset_ns_to_frame_num(frame_timestamp_ns, self.video_metadata.video_fps_exact)
         self.emit('push-buffer', buf)
         self.current_timestamp_ns = frame_timestamp_ns
+
+        if tracer is not None:
+            _now = time.perf_counter_ns()
+            tracer.record_push(int(buf.offset), int(frame_timestamp_ns), _now,
+                               _wait_ns, _now - _t_proc0, hit)
 
         # Drive the processing-frontier gate: let the AI pipeline work on frames up to
         # playhead + window, but no further. This keeps the GPU focused on frames near the
@@ -552,7 +564,9 @@ class RealtimeFrameRestorerAppSrc(GstApp.AppSrc):
     def _update_processing_frontier(self, playhead_frame: int):
         with self._ai_lock:
             fr = self.frame_restorer
-        if fr is None:
+        if fr is None or isinstance(fr, PassthroughFrameRestorer):
+            # passthrough has no detector to gate (only happens under the LADA_REALTIME_PASSTHROUGH
+            # diagnostic A/B); nothing to clamp.
             return
         if not REALTIME_FRONTIER_GATE_ENABLED:
             # Gate disabled (A/B): let the AI run unbounded except for output-queue

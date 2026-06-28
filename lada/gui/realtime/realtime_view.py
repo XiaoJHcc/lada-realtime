@@ -16,6 +16,7 @@ the no-GPU banner that WatchView has, to keep the surface small.
 import logging
 import pathlib
 import threading
+import time
 
 from gi.repository import Gtk, GObject, GLib, Gio, Gst, Adw, Gdk, Graphene
 
@@ -25,6 +26,7 @@ from lada.gui.config.config import Config
 from lada.gui.config.config_sidebar import ConfigSidebar
 from lada.gui.frame_restorer_provider import FrameRestorerProvider, FrameRestorerOptions, FRAME_RESTORER_PROVIDER, FrameRestorerOptionsBuilder
 from lada.gui.realtime.gstreamer_pipeline_manager_realtime import RealtimePipelineManager
+from lada.gui.realtime import realtime_trace
 from lada.gui.watch.gstreamer_pipeline_manager import PipelineState
 from lada.gui.watch.headerbar_files_drop_down import HeaderbarFilesDropDown
 from lada.restorationpipeline.progress import set_load_progress_callback, clear_load_progress_callback
@@ -469,6 +471,8 @@ class RealtimeView(Gtk.Widget):
             self.pipeline_manager.set_lookahead_frames(self.config.realtime_lookahead_frames)
             self.pipeline_manager.set_cold_start_clips(self.config.realtime_cold_start_clips)
             self.picture_video_player.set_paintable(self.pipeline_manager.paintable)
+            self._install_frame_clock_keepalive()
+            self._install_presentation_trace()
             self.pipeline_connection_handler_ids = [
                 self.pipeline_manager.connect("paintable-size-changed", lambda obj: GLib.idle_add(lambda: self.emit("window-resize-requested", self.pipeline_manager.paintable))),
                 self.pipeline_manager.connect("eos", lambda obj: GLib.idle_add(lambda: self.on_eos())),
@@ -482,9 +486,62 @@ class RealtimeView(Gtk.Widget):
             self.pipeline_manager.play()
         threading.Thread(target=play).start()
 
+    def _install_frame_clock_keepalive(self):
+        """Keep the video widget's GdkFrameClock running so gtk4paintablesink paces frame
+        presentation by the display refresh instead of a coarse timer.
+
+        ROOT-CAUSE FIX for the realtime "judder / uneven frame rate". gtk4paintablesink hands each
+        new frame to the GdkPaintable and relies on the widget's GdkFrameClock to schedule the
+        on-screen update. With nothing else animating the widget, GTK lets the frame clock go idle
+        between frames; the sink then falls back to a coarse timed wait whose granularity on
+        Windows is the 15.625ms system timer. A 33.37ms (29.97fps) frame can't be paced on a
+        15.625ms grid, so it alternates 2x (31.25ms) and 3x (46.875ms) quanta -- a measured hard
+        70%/16% bimodal at exactly those values -> persistent stutter. Registering a no-op tick
+        callback keeps the frame clock ticking at the monitor refresh, so presentation is paced by
+        the refresh clock and the bimodal collapses (measured: frames held >43ms drop from ~16% to
+        <1%). Cross-platform and independent of CPU load (capping CPU threads changed nothing);
+        costs only a no-op main-thread wake per refresh while the realtime view is shown."""
+        if getattr(self, "_frame_clock_keepalive_id", None) is not None:
+            return
+        try:
+            self._frame_clock_keepalive_id = self.picture_video_player.add_tick_callback(
+                lambda _widget, _clock: GLib.SOURCE_CONTINUE)
+        except Exception as e:
+            logger.warning(f"realtime frame-clock keepalive install failed: {e}")
+
+    def _install_presentation_trace(self):
+        """Diagnostics (LADA_REALTIME_TRACE only): measure the TRUE on-screen cadence, not just
+        the GStreamer sink. Two GTK-main-thread probes:
+          - paintable 'invalidate-contents' -> one event per frame actually handed to the display
+          - the widget's GdkFrameClock tick -> one event per screen-refresh opportunity
+        Together they show how many refreshes each frame is held for (even == smooth)."""
+        if not realtime_trace.TRACE_ENABLED:
+            return
+        tracer = realtime_trace.get_tracer()
+        if tracer is None:
+            return
+        try:
+            paintable = self.pipeline_manager.paintable
+            if paintable is not None:
+                paintable.connect("invalidate-contents",
+                                  lambda *_a: tracer.record_newframe(time.perf_counter_ns()))
+            # The tick callback keeps a handle on the frame clock; to rule out that it perturbs
+            # the clock rate, LADA_TRACE_NO_TICKS=1 skips it (present/invalidate-contents jitter
+            # is measured independently and is the real on-screen-cadence signal).
+            if not realtime_trace._env_truthy(__import__("os").environ.get("LADA_TRACE_NO_TICKS")):
+                def _on_tick(widget, frame_clock):
+                    tracer.record_tick(frame_clock.get_frame_time())
+                    return GLib.SOURCE_CONTINUE
+                self.picture_video_player.add_tick_callback(_on_tick)
+        except Exception as e:
+            logger.warning(f"realtime presentation trace install failed: {e}")
+
     def on_eos(self):
         self.eos = True
         self.button_image_play_pause.set_property("icon-name", "media-playback-start-symbolic")
+        tracer = realtime_trace.get_tracer()
+        if tracer is not None:
+            tracer.dump()
 
     def on_pipeline_state(self, state: PipelineState):
         if state == PipelineState.PLAYING:
@@ -573,6 +630,9 @@ class RealtimeView(Gtk.Widget):
     def close(self, block=False):
         if not self.pipeline_manager:
             return
+        tracer = realtime_trace.get_tracer()
+        if tracer is not None:
+            tracer.dump()
         self._video_preview_init_done = False
         self.close_thumbnailer()
         if block:

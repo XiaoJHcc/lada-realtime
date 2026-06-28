@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 
 import logging
+import os
 import pathlib
 
 import gi
@@ -13,7 +14,7 @@ gi.require_version('Adw', '1')
 gi.require_version('Gst', '1.0')
 gi.require_version('GstApp', '1.0')
 
-from gi.repository import Gtk, Gio, Adw, Gdk, Gst, GObject
+from gi.repository import Gtk, Gio, Adw, Gdk, Gst, GObject, GLib
 
 Gst.init(None)
 
@@ -83,6 +84,39 @@ class LadaApplication(Adw.Application):
 
             self._shortcuts_manager.init(win.shortcut_controller)
         win.present()
+        self._maybe_autoplay(win)
+
+    def _maybe_autoplay(self, win) -> None:
+        """Dev/diagnostics hook (no-op unless env vars are set) to drive a measurement run
+        end-to-end without manual clicks:
+          LADA_AUTOPLAY=<path>   open the file via the normal on_files_selected path, which
+                                 auto-plays on the configured initial_view (realtime by default)
+          LADA_AUTOQUIT_SEC=<N>  quit after N seconds (clean trace dump on window close)
+        """
+        path = os.environ.get("LADA_AUTOPLAY")
+        if not path:
+            return
+
+        def _open():
+            try:
+                win.on_files_selected([Gio.File.new_for_path(os.path.abspath(path))])
+            except Exception as e:
+                logger.error(f"LADA_AUTOPLAY failed to open {path}: {e}")
+            return False
+        GLib.idle_add(_open)
+
+        quit_sec = os.environ.get("LADA_AUTOQUIT_SEC")
+        if quit_sec:
+            try:
+                secs = float(quit_sec)
+            except ValueError:
+                secs = 0.0
+            if secs > 0:
+                logger.warning(f"LADA_AUTOQUIT_SEC set: will quit in {secs:.0f}s")
+                def _quit():
+                    self.quit()
+                    return False
+                GLib.timeout_add(int(secs * 1000), _quit)
 
     def on_shutdown(self, *_args) -> None:
         for win in self.get_windows():
