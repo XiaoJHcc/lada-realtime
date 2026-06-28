@@ -353,6 +353,12 @@ msgstr "실시간 클립 길이"
 msgid "Number of frames per clip in the realtime preview. Shorter clips lower first-frame latency but reduce temporal stability. Independent from the export/preview maximum clip duration."
 msgstr "실시간 미리보기에서 각 클립의 프레임 수. 클립이 짧을수록 첫 프레임 지연이 줄어들지만 시간 안정성이 떨어집니다. 내보내기/미리보기의 최대 클립 길이와 독립적입니다."
 
+msgid "Max regions per frame"
+msgstr "프레임당 최대 영역 수"
+
+msgid "Maximum number of mosaic regions to process per frame. Excess regions are skipped. Lower values help GPU realtime playback, but processed regions may flicker."
+msgstr "프레임당 처리할 모자이크 영역의 최대 수. 초과 영역은 건너뜁니다. 낮을수록 GPU 실시간 재생에 유리하지만, 처리된 영역이 깜빡일 수 있습니다."
+
 msgid "Buffer window"
 msgstr "버퍼 윈도우"
 

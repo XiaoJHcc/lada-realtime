@@ -101,6 +101,22 @@ SPDX-License-Identifier: AGPL-3.0
                                     </object>
                                 </child>
                                 <child>
+                                    <object class="AdwSpinRow" id="spin_row_realtime_max_regions">
+                                        <property name="title" translatable="true">Max regions per frame</property>
+                                        <property name="subtitle" translatable="true">Maximum number of mosaic regions to process per frame. Excess regions are skipped. Lower values help GPU realtime playback, but processed regions may flicker.</property>
+                                        <signal name="notify::value"
+                                                handler="spin_row_realtime_max_regions_selected_callback"/>
+                                        <property name="adjustment">
+                                            <object class="GtkAdjustment">
+                                                <property name="lower">1</property>
+                                                <property name="upper">10</property>
+                                                <property name="value">1</property>
+                                                <property name="step-increment">1</property>
+                                            </object>
+                                        </property>
+                                    </object>
+                                </child>
+                                <child>
                                     <object class="AdwSpinRow" id="spin_row_realtime_cold_start_clips">
                                         <property name="title" translatable="true">Cold-start lead</property>
                                         <property name="subtitle" translatable="true">To avoid AI processing always lagging behind playback, after seeking the AI skips ahead by N clips to process unreached frames. Ideally this switches smoothly to AI frames within the set lead time. Increase if AI can't keep up; decrease to shorten original frames at the start.</property>

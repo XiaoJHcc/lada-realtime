@@ -27,6 +27,7 @@ class ConfigSidebar(Gtk.Box):
     combo_row_gpu = Gtk.Template.Child()
     spin_row_preview_buffer_duration = Gtk.Template.Child()
     spin_row_realtime_clip_length = Gtk.Template.Child()
+    spin_row_realtime_max_regions = Gtk.Template.Child()
     spin_row_realtime_cold_start_clips = Gtk.Template.Child()
     spin_row_realtime_lookahead_frames = Gtk.Template.Child()
     spin_row_clip_max_duration = Gtk.Template.Child()
@@ -135,6 +136,7 @@ class ConfigSidebar(Gtk.Box):
 
         self.spin_row_preview_buffer_duration.set_value(config.preview_buffer_duration)
         self.spin_row_realtime_clip_length.set_value(config.realtime_clip_length)
+        self.spin_row_realtime_max_regions.set_value(config.realtime_max_regions)
         self.spin_row_realtime_cold_start_clips.set_value(config.realtime_cold_start_clips)
         self.spin_row_realtime_lookahead_frames.set_value(config.realtime_lookahead_frames)
         self.spin_row_clip_max_duration.set_value(config.max_clip_duration)
@@ -283,6 +285,11 @@ class ConfigSidebar(Gtk.Box):
     @skip_if_uninitialized
     def spin_row_realtime_clip_length_selected_callback(self, spin_row, value):
         self._config.realtime_clip_length = int(spin_row.get_property("value"))
+
+    @Gtk.Template.Callback()
+    @skip_if_uninitialized
+    def spin_row_realtime_max_regions_selected_callback(self, spin_row, value):
+        self._config.realtime_max_regions = int(spin_row.get_property("value"))
 
     @Gtk.Template.Callback()
     @skip_if_uninitialized

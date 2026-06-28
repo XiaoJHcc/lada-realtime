@@ -25,7 +25,7 @@ logging.basicConfig(level=LOG_LEVEL)
 class FrameRestorer:
     def __init__(self, device, video_file, max_clip_length, mosaic_restoration_model_name,
                  mosaic_detection_model: Yolo11SegmentationModel, mosaic_restoration_model, preferred_pad_mode,
-                 mosaic_detection=False, frame_restoration_queue_max_bytes=512 * 1024 * 1024):
+                 mosaic_detection=False, realtime_max_regions=1, frame_restoration_queue_max_bytes=512 * 1024 * 1024):
         self.device = torch.device(device)
         self.mosaic_restoration_model_name = mosaic_restoration_model_name
         self.max_clip_length = max_clip_length
@@ -62,6 +62,7 @@ class FrameRestorer:
                                               device=self.device,
                                               max_clip_length=self.max_clip_length,
                                               pad_mode=self.preferred_pad_mode,
+                                              max_regions_per_frame=realtime_max_regions,
                                               error_handler=self._on_worker_thread_error)
 
         self.clip_restoration_thread: PipelineThread | None = None

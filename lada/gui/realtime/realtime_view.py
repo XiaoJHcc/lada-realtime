@@ -250,6 +250,11 @@ class RealtimeView(Gtk.Widget):
                 self.pipeline_manager.set_realtime_clip_frames(self._config.realtime_clip_length)
         self._config.connect("notify::realtime-clip-length", on_realtime_clip_length)
 
+        def on_realtime_max_regions(object, spec):
+            if self._frame_restorer_options:
+                self.frame_restorer_options = FrameRestorerOptionsBuilder(self.frame_restorer_options).realtime_max_regions(self._config.realtime_max_regions).build()
+        self._config.connect("notify::realtime-max-regions", on_realtime_max_regions)
+
         def on_fp16_enabled(object, spec):
             if self._frame_restorer_options:
                 self.frame_restorer_options = FrameRestorerOptionsBuilder(self.frame_restorer_options).fp16_enabled(self._config.fp16_enabled).build()
@@ -439,7 +444,8 @@ class RealtimeView(Gtk.Widget):
                                                            self.config.show_mosaic_detections,
                                                            False,
                                                            self.config.fp16_enabled,
-                                                           self.config.detect_face_mosaics)
+                                                           self.config.detect_face_mosaics,
+                                                           self.config.realtime_max_regions)
 
         self.should_be_paused = False
         self.seek_in_progress = False

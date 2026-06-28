@@ -352,6 +352,12 @@ msgstr "实时切片长度"
 msgid "Number of frames per clip in the realtime preview. Shorter clips lower first-frame latency but reduce temporal stability. Independent from the export/preview maximum clip duration."
 msgstr "实时预览计算中每个切片的帧数。切片越短首帧延迟越低，但时间稳定性越弱。与原版导出/预览的最大切片帧数相互独立。"
 
+msgid "Max regions per frame"
+msgstr "同帧最多区块数"
+
+msgid "Maximum number of mosaic regions to process per frame. Excess regions are skipped. Lower values help GPU realtime playback, but processed regions may flicker."
+msgstr "每帧最多处理的马赛克区块数量，多余区块会被跳过，较低数值有利于 GPU 实时处理，但处理的区块可能会闪烁。"
+
 msgid "Buffer window"
 msgstr "缓冲窗口"
 

@@ -27,6 +27,7 @@ class FrameRestorerOptions:
     passthrough: bool
     fp16_enabled: bool
     detect_face_mosaics: bool
+    realtime_max_regions: int = 1
 
 class FrameRestorerOptionsBuilder:
     def __init__(self, initial: FrameRestorerOptions | None = None):
@@ -38,6 +39,7 @@ class FrameRestorerOptionsBuilder:
                 "video_metadata": initial.video_metadata,
                 "device": initial.device,
                 "max_clip_length": initial.max_clip_length,
+                "realtime_max_regions": initial.realtime_max_regions,
                 "mosaic_detection": initial.mosaic_detection,
                 "passthrough": initial.passthrough,
                 "fp16_enabled": initial.fp16_enabled,
@@ -62,6 +64,10 @@ class FrameRestorerOptionsBuilder:
 
     def max_clip_length(self, value: int) -> 'FrameRestorerOptionsBuilder':
         self._properties["max_clip_length"] = value
+        return self
+
+    def realtime_max_regions(self, value: int) -> 'FrameRestorerOptionsBuilder':
+        self._properties["realtime_max_regions"] = value
         return self
 
     def mosaic_detection(self, value: bool) -> 'FrameRestorerOptionsBuilder':
@@ -146,6 +152,7 @@ class FrameRestorerProvider:
                              self.models_cache["mosaic_restoration_model"],
                              self.models_cache["mosaic_restoration_model_preferred_pad_mode"],
                              self.options.mosaic_detection,
+                             realtime_max_regions=self.options.realtime_max_regions,
                              **({"frame_restoration_queue_max_bytes": frame_restoration_queue_max_bytes} if frame_restoration_queue_max_bytes is not None else {}))
 
     def _clear_cache(self):

@@ -372,6 +372,12 @@ msgstr "Durée du clip en temps réel"
 msgid "Number of frames per clip in the realtime preview. Shorter clips lower first-frame latency but reduce temporal stability. Independent from the export/preview maximum clip duration."
 msgstr "Nombre d'images par clip dans l'aperçu en temps réel. Des clips plus courts réduisent la latence (l'IA peut suivre plus facilement) mais réduisent la stabilité temporelle. Indépendant de la durée maximale du clip d'exportation/aperçu."
 
+msgid "Max regions per frame"
+msgstr "Max régions par frame"
+
+msgid "Maximum number of mosaic regions to process per frame. Excess regions are skipped. Lower values help GPU realtime playback, but processed regions may flicker."
+msgstr "Nombre maximum de régions de mosaïque par frame. Les régions excédentaires sont ignorées. Des valeurs plus basses favorisent la lecture en temps réel du GPU, mais les régions traitées peuvent scintiller."
+
 msgid "Buffer window"
 msgstr "Fenêtre de tampon"
 

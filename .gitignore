@@ -31,3 +31,4 @@ scripts/trt_validate*.log
 
 # Local test media
 /test_video*.mp4
+.mimocode

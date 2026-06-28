@@ -48,6 +48,7 @@ class Config(GObject.Object):
         'realtime_clip_length': 30,
         'realtime_cold_start_clips': 4,
         'realtime_lookahead_frames': 180,
+        'realtime_max_regions': 1,
         'seek_preview_enabled': True,
         'show_mosaic_detections': False,
         'temp_directory': tempfile.gettempdir(),
@@ -73,6 +74,7 @@ class Config(GObject.Object):
         self._realtime_clip_length = self._defaults['realtime_clip_length']
         self._realtime_cold_start_clips = self._defaults['realtime_cold_start_clips']
         self._realtime_lookahead_frames = self._defaults['realtime_lookahead_frames']
+        self._realtime_max_regions = self._defaults['realtime_max_regions']
         self._seek_preview_enabled = self._defaults['seek_preview_enabled']
         self._show_mosaic_detections = self._defaults['show_mosaic_detections']
         self._post_export_action = self._defaults['post_export_action']
@@ -195,6 +197,17 @@ class Config(GObject.Object):
         if value == self._realtime_cold_start_clips:
             return
         self._realtime_cold_start_clips = value
+        self.save()
+
+    @GObject.Property()
+    def realtime_max_regions(self):
+        return self._realtime_max_regions
+
+    @realtime_max_regions.setter
+    def realtime_max_regions(self, value):
+        if value == self._realtime_max_regions:
+            return
+        self._realtime_max_regions = value
         self.save()
 
     @GObject.Property()
@@ -402,6 +415,7 @@ class Config(GObject.Object):
         self.realtime_clip_length = self._defaults['realtime_clip_length']
         self.realtime_cold_start_clips = self._defaults['realtime_cold_start_clips']
         self.realtime_lookahead_frames = self._defaults['realtime_lookahead_frames']
+        self.realtime_max_regions = self._defaults['realtime_max_regions']
         self.seek_preview_enabled = self._defaults['seek_preview_enabled']
         self.show_mosaic_detections = self._defaults['show_mosaic_detections']
         self.temp_directory = self._defaults['temp_directory']
@@ -438,6 +452,7 @@ class Config(GObject.Object):
             'realtime_clip_length': self._realtime_clip_length,
             'realtime_cold_start_clips': self._realtime_cold_start_clips,
             'realtime_lookahead_frames': self._realtime_lookahead_frames,
+            'realtime_max_regions': self._realtime_max_regions,
             'seek_preview_enabled': self._seek_preview_enabled,
             'show_mosaic_detections': self._show_mosaic_detections,
             'temp_directory': self._temp_directory,

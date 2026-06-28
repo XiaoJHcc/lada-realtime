@@ -163,7 +163,7 @@ class Clip:
         return self.frames[item], self.masks[item], self.boxes[item]
 
 class MosaicDetector:
-    def __init__(self, model: Yolo11SegmentationModel, video_metadata: VideoMetadata, frame_detection_queue: PipelineQueue, mosaic_clip_queue: PipelineQueue, error_handler: Callable[[ErrorMarker], None], max_clip_length=30, clip_size=256, device: torch.device | None = None, pad_mode='reflect', batch_size=4):
+    def __init__(self, model: Yolo11SegmentationModel, video_metadata: VideoMetadata, frame_detection_queue: PipelineQueue, mosaic_clip_queue: PipelineQueue, error_handler: Callable[[ErrorMarker], None], max_clip_length=30, clip_size=256, device: torch.device | None = None, pad_mode='reflect', batch_size=4, max_regions_per_frame=1):
         self.model = model
         self.video_meta_data = video_metadata
         self.device = torch.device(device) if device is not None else device
@@ -184,6 +184,7 @@ class MosaicDetector:
         self.inference_thread: PipelineThread | None = None
         self.stop_requested = False
         self.batch_size = batch_size
+        self.max_regions_per_frame = max_regions_per_frame
 
         # Production-side throughput counter: total frames the YOLO detector has actually
         # run inference on. Monotonic, never reset on pause -> a consumer sampling it twice
@@ -343,7 +344,8 @@ class MosaicDetector:
         return None
 
     def _create_or_append_scenes_based_on_prediction_result(self, results: UltralyticsResults, scenes: list[Scene], frame_num):
-        for i in range(len(results.boxes)):
+        num_boxes = min(len(results.boxes), self.max_regions_per_frame) if self.max_regions_per_frame > 0 else len(results.boxes)
+        for i in range(num_boxes):
             mask = convert_yolo_mask_tensor(results.masks[i], results.orig_shape).to(device=results.orig_img.device)
             box = convert_yolo_box(results.boxes[i], results.orig_shape)
 
