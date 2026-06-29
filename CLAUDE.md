@@ -174,9 +174,9 @@ CLI 直接可用：`lada-cli --input <video>`。
 
 **GUI 额外需要 GTK/GStreamer 系统依赖**（`build_gtk/`，预编译包或 gvsbuild 自行编译），再装 PyGObject/pycairo wheel，然后 `lada`。`lada/gui/__init__.py` 的 `prepare_windows_gui_environment()` 在 import 时自动把 `build_gtk/gtk/x64/release/bin` 接入 `PATH`，无需手动设 typelib/插件路径。实时预览改造主要在 GUI（Watch 页），跑 GUI 是验证前提。
 
-**Windows 打包成 .exe**：`packaging/windows/package_executable.ps1`（PyInstaller，spec 在 `packaging/windows/lada.spec`）。产物为 `lada.exe`（GUI）和 `lada-cli.exe`。
+**Windows 打包成 .exe**：`packaging/windows/package_executable.ps1`（PyInstaller，spec 在 `packaging/windows/lada.spec`）。产物为 **`lada-rt.exe`（GUI）和 `lada-rt-cli.exe`（CLI）**（fork 改名,见下「fork 品牌/资源」）。注意 PyInstaller 的 **COLLECT 输出目录仍叫 `dist/lada`**（`ps1` 多处硬编码该路径,刻意未改）—— 即 `dist/lada/lada-rt.exe`。
 
-入口点（`pyproject.toml [project.scripts]`）：`lada` → `lada.gui.main:main`，`lada-cli` → `lada.cli.main:main`。版本：`lada/__init__.py` `VERSION`（当前 `0.11.1-dev`）。
+入口点（`pyproject.toml [project.scripts]`）：`lada` → `lada.gui.main:main`，`lada-cli` → `lada.cli.main:main`（**命令名保持不变**,只有打包 exe 改名）。分发包名 `lada-rt`（`pyproject.toml` `name`）。版本：`lada/__init__.py` `VERSION`（当前 `0.11.1-dev`）。
 
 ### 分发包体积分析与裁剪（2026-06 调研）
 
@@ -212,7 +212,7 @@ CLI 直接可用：`lada-cli --input <video>`。
 **验证手段（复用）**：
 - **PE 导入表硬验证**（`venv_release_win` 自带 `pefile`）：判断某 DLL 是否「加载时刚性依赖」= 解析依赖它的 torch DLL 的 `IMAGE_DIRECTORY_ENTRY_IMPORT`，目标 DLL 在导入表里即刚性、删了崩；不在表里则可能是运行时 dlopen（如 cuDNN 子库），需实跑验证。一次性脚本思路见本轮 `cusolverMg`/`curand` 验证。
 - **运行时去码验证脚本**（本轮新增，验剩余 🟡 直接复用）：`scripts/dll_trim_verify.py` —— `load_models`（内部已 warmup BasicVSR++ + YOLO）+ 真实 clip restore + 真实帧 detect，检查有限输出；配合 shell 把目标 DLL 从 `.venv/Lib/site-packages/torch/lib` 改名移走→跑→还原（trap 保证还原）。`scripts/exclude_sim_verify.py <模块名>` —— 用 meta-path 阻断器模拟 PyInstaller `excludes`，验「排除某 Python 模块是否破坏加载链」（无需动文件）。
-- **冻结产物烟测**（最终确认）：从项目根跑 `dist/lada/lada-cli.exe --input test_video.mp4 --output ... --device cuda`，frozen 模式权重目录是 bundle 内 `_internal/model_weights`（运行时钩子指定），把 `model_weights/*_sub_engines` 拷进去可跳过现编。**注意系统若装了 CUDA toolkit，PATH 上的同名 DLL 会掩盖真实依赖 → 验证机须无 CUDA toolkit / 无系统副本（本机已确认）。**
+- **冻结产物烟测**（最终确认）：从项目根跑 `dist/lada/lada-rt-cli.exe --input test_video.mp4 --output ... --device cuda`，frozen 模式权重目录是 bundle 内 `_internal/model_weights`（运行时钩子指定），把 `model_weights/*_sub_engines` 拷进去可跳过现编。**注意系统若装了 CUDA toolkit，PATH 上的同名 DLL 会掩盖真实依赖 → 验证机须无 CUDA toolkit / 无系统副本（本机已确认）。**
 
 小结：本轮已落地（2026-06-27）——
 - **当前已构建 dist（手删，立即生效，7.6G→6.9G，约 640MB）**：`cudnn_adv64_9.dll`(269M) + `cusolverMg`(157M) + `curand`(72M) DLL + `polars`(129M) + `matplotlib`(12M)，均冻结 `lada-cli.exe` 完整导出整段 test_video（3576 帧）验证不崩。tcl/tk(8M) 不能手删（tkinter 启动钩子），留待下次构建。
@@ -247,7 +247,7 @@ lada                                  # 或 python -m lada.gui.main
   done
   ```
   `LANGUAGE` / `LANG` 环境变量可覆盖系统语言。`zh_CN.po` 覆盖不全，界面会夹少量英文。
-- **别和编译版 `lada.exe` 同开**：两者共用 GApplication app-id，单实例机制会让后启动的进程把窗口激活信号转发给已运行实例后**静默退出**——会误以为在跑源码版、实际在操作编译版。排查「启动即退/跑错版本」先查 `tasklist /fi "imagename eq lada.exe"` 和正在跑的 `python.exe` 命令行。
+- **别和编译版同开**：源码版(`python`/`lada`)与编译版(`lada-rt.exe`)**共用同一 GApplication app-id `io.github.XiaoJHcc.ladart`**,单实例机制会让后启动的进程把窗口激活信号转发给已运行实例后**静默退出**——会误以为在跑源码版、实际在操作编译版。排查「启动即退/跑错版本」先查 `tasklist /fi "imagename eq lada-rt.exe"` 和正在跑的 `python.exe` 命令行。(改 app-id 后本 fork **不再**与上游 `lada.exe`(app-id `io.github.ladaapp.lada`)互顶,只有 fork 自己的源码版与编译版会互顶。)
 
 ## 约定与注意事项
 
@@ -256,6 +256,15 @@ lada                                  # 或 python -m lada.gui.main
 - `LOG_LEVEL` 环境变量控制日志（默认 `WARNING`，调试设 `DEBUG`）。
 - 许可证 **AGPL-3.0**；新增源文件沿用现有 SPDX 头：
   `# SPDX-FileCopyrightText: Lada Authors` / `# SPDX-License-Identifier: AGPL-3.0`。
-- 上游主仓在 **Codeberg**，GitHub 为镜像。本仓库是个人 fork。
+- 上游主仓在 **Codeberg**，GitHub 为镜像。本仓库是个人 fork（`github.com/XiaoJHcc/lada-realtime`）。
+- **fork 品牌/资源**（2026-06-30 落地,见 commit「fork 品牌化」）：显示名 **Lada Realtime**、分发包名 **lada-rt**、app-id **`io.github.XiaoJHcc.ladart`**。GUI 图标资源命名空间整体迁到 `/io/github/XiaoJHcc/ladart/...`(gresource 前缀 = app-id 推导路径,故图标主题自动注册即生效;`application.py`/`missing_flatpak_extension_application.py` 仍显式 `set_resource_base_path` 作防御)。**单一 logo**:`assets/io.github.XiaoJHcc.ladart.png` 同时用作 About/窗口图标(按图标名,经 gresource 内 hicolor `128x128/apps/` 布局解析)**和**落地页大图(`file_selection_view.py` 直接按资源路径加载);已移除灰版 `lada-logo-gray.png`。
+  - **⚠️ 改 logo 后必须重编 gresource**:`assets/io.github.XiaoJHcc.ladart.png` 在 `lada/gui/resources.gresource.xml` 里被**编译期拷进** `lada/gui/resources.gresource`,运行时加载的是这个二进制副本而非源 PNG。覆盖图后**只换图、文件名不变**时,唯一要做的就是重编(其它 spec/README/代码引用都按文件名走,不受像素改动影响):
+    ```bash
+    cd lada/gui && ../../build_gtk/gtk/x64/release/bin/glib-compile-resources.exe resources.gresource.xml
+    ```
+    **必须在 `lada/gui/` 目录下跑**(xml 里 `icons/...`、`../../assets/...` 都是相对该目录;在仓库根跑会找不到文件而失败)。若连**文件名**一起改,则还要同步 gresource alias、`application_icon`(两处)、Windows/macOS spec 的 icon 路径、README 的 `<img>`。
+  - **Windows 任务栏图标**:`lada/gui/__init__.py` 的 `set_windows_app_user_model_id()` 设了显式 AppUserModelID,让**源码运行**的任务栏不再显示 python.exe 图标(编译版 `lada-rt.exe` 本就嵌了 exe 图标)。
+  - **flatpak/macOS 未迁移**:`packaging/flatpak/**` 仍是上游 `io.github.ladaapp.lada` 命名空间且 asset 已改名 → **当前会构建失败**(README 顶部有 WARNING)。只发 Windows 就无影响,真要发 flatpak 需整套迁移。
+- 改 GUI 资源/图标后,运行 `lada` 验证前确保已重编 `resources.gresource`(见上)。
 - 改 GStreamer 管线/缓冲行为时，注意 Windows + Nvidia + OpenGL paintable 有已知的颜色错乱 workaround（`gstreamer_pipeline_manager.py:268`，win32 上不走 glsinkbin）。
 ```
