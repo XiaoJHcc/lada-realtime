@@ -86,7 +86,7 @@ from lada import VERSION
 common_datas = get_common_datas(project_root)
 common_binaries = get_common_binaries(project_root)
 common_runtime_hooks = [ospj(project_root, "packaging/macOS/pyinstaller_runtime_hook_lada.py")]
-common_icon = ospj(project_root, 'assets/io.github.ladaapp.lada.png')
+common_icon = ospj(project_root, 'assets/io.github.XiaoJHcc.ladart.png')
 
 # ----- CLI -----
 cli_a = Analysis(

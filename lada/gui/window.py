@@ -57,7 +57,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._config: Config | None
         self._shortcuts_manager: ShortcutsManager | None = None
 
-        self.set_title("Lada")
+        self.set_title("Lada Realtime")
 
         self.connect("close-request", self.close)
         self.connect("realize", self.on_realize)

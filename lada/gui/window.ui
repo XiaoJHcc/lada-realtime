@@ -9,7 +9,7 @@ SPDX-License-Identifier: AGPL-3.0
     <requires lib="gtk" version="4.0"/>
     <requires lib="Adw" version="1.0"/>
     <template class="MainWindow" parent="AdwApplicationWindow">
-        <property name="title">Lada</property>
+        <property name="title">Lada Realtime</property>
         <property name="default-width">900</property>
         <property name="default-height">550</property>
         <property name="resizable">true</property>

@@ -24,8 +24,8 @@ This section provides instructions for installing the app (CLI and GUI) from sou
    Open a PowerShell window as a regular user. You will not need an Administrator Shell for any of the remaining steps.
 
    ```Powershell
-   git clone https://codeberg.org/ladaapp/lada.git
-   cd lada
+   git clone https://github.com/XiaoJHcc/lada-realtime.git
+   cd lada-realtime
    ```
 
 3) Create a virtual environment to install python dependencies

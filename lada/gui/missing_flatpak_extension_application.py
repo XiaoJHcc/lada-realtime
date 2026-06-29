@@ -21,8 +21,10 @@ logging.basicConfig(level=LOG_LEVEL)
 class MissingFlatpakExtensionApplication(Adw.Application):
 
     def __init__(self):
-        super().__init__(application_id='io.github.ladaapp.lada',
+        super().__init__(application_id='io.github.XiaoJHcc.ladart',
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        # Keep icon-theme resource lookups pointed at the bundled gresource prefix; see LadaApplication.
+        self.set_resource_base_path('/io/github/XiaoJHcc/ladart')
         self.create_action("quit", lambda *_: self.quit(), ("<primary>q",))
         self.create_action('about', self.on_about_action)
 
@@ -34,11 +36,13 @@ class MissingFlatpakExtensionApplication(Adw.Application):
         Gio.resources_register(resource)
 
     def on_about_action(self, *args):
-        about = Adw.AboutDialog(application_name='Lada',
-                                application_icon='io.github.ladaapp.lada',
+        about = Adw.AboutDialog(application_name='Lada Realtime',
+                                application_icon='io.github.XiaoJHcc.ladart',
                                 license_type=Gtk.License.AGPL_3_0,
-                                website='https://codeberg.org/ladaapp/lada',
-                                issue_url='https://codeberg.org/ladaapp/lada/issues',
+                                website='https://github.com/XiaoJHcc/lada-realtime',
+                                issue_url='https://github.com/XiaoJHcc/lada-realtime/issues',
+                                developer_name='XiaoJHcc',
+                                comments='Fork of Lada by the Lada Authors — https://codeberg.org/ladaapp/lada',
                                 version=VERSION)
         about.present(self.props.active_window)
 
@@ -53,7 +57,7 @@ class MissingFlatpakExtensionApplication(Adw.Application):
         win = self.props.active_window
         if not win:
             win = Adw.ApplicationWindow(application=self, title="Hello World")
-            win.set_title("Lada")
+            win.set_title("Lada Realtime")
             win.set_default_size(900, 550)
 
             status_page = Adw.StatusPage()

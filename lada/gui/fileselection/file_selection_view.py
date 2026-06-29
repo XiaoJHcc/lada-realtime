@@ -28,7 +28,7 @@ class FileSelectionView(Gtk.Widget):
         drop_target = utils.create_files_drop_target(lambda files: self.emit("files-selected", files))
         self.add_controller(drop_target)
 
-        logo_image = Gtk.Image.new_from_resource("/io/github/ladaapp/lada/icons/128x128/lada-logo-gray.png")
+        logo_image = Gtk.Image.new_from_resource("/io/github/XiaoJHcc/ladart/icons/128x128/apps/io.github.XiaoJHcc.ladart.png")
         self.status_page.set_paintable(logo_image.get_paintable())
 
     @GObject.Property(type=str)

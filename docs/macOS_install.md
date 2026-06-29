@@ -21,8 +21,8 @@ This section provides instructions for installing Lada from source on macOS: the
 2) Get the source code
 
    ```bash
-   git clone https://codeberg.org/ladaapp/lada.git
-   cd lada
+   git clone https://github.com/XiaoJHcc/lada-realtime.git
+   cd lada-realtime
    ```
 
 3) Create a virtual environment and install Python dependencies

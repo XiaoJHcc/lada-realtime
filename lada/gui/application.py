@@ -30,8 +30,12 @@ from lada.gui.config.config import Config
 class LadaApplication(Adw.Application):
 
     def __init__(self):
-        super().__init__(application_id='io.github.ladaapp.lada',
+        super().__init__(application_id='io.github.XiaoJHcc.ladart',
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        # GtkApplication derives its icon-theme resource path from the app-id; pin it explicitly to
+        # the gresource prefix so named icons (sidebar actions, About app icon) keep resolving even
+        # if the app-id ever changes. Matches the prefix in resources.gresource.xml.
+        self.set_resource_base_path('/io/github/XiaoJHcc/ladart')
         self.create_action("quit", lambda *_: self.quit(), ("<primary>q",))
         self.create_action('about', self.on_about_action)
         self.create_action('shortcuts', self.on_shortcut_action)
@@ -137,11 +141,13 @@ class LadaApplication(Adw.Application):
             pass
 
     def on_about_action(self, *args):
-        about = Adw.AboutDialog(application_name='Lada',
-                                application_icon='io.github.ladaapp.lada',
+        about = Adw.AboutDialog(application_name='Lada Realtime',
+                                application_icon='io.github.XiaoJHcc.ladart',
                                 license_type=Gtk.License.AGPL_3_0,
-                                website='https://codeberg.org/ladaapp/lada',
-                                issue_url='https://codeberg.org/ladaapp/lada/issues',
+                                website='https://github.com/XiaoJHcc/lada-realtime',
+                                issue_url='https://github.com/XiaoJHcc/lada-realtime/issues',
+                                developer_name='XiaoJHcc',
+                                comments='Fork of Lada by the Lada Authors — https://codeberg.org/ladaapp/lada',
                                 version=VERSION)
         about.present(self.props.active_window)
 

@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="assets/io.github.ladaapp.lada.png" alt="Lada Icon" style="display: block; width: 64px; height: 64px;">
+  <img src="assets/io.github.XiaoJHcc.ladart.png" alt="Lada Realtime Icon" style="display: block; width: 64px; height: 64px;">
   <br>
   Lada Realtime
 </h1>
@@ -66,7 +66,7 @@ The packaging script installs system dependencies automatically (FFmpeg / uv / 7
 .\packaging\windows\package_executable.ps1 -extra nvidia
 ```
 
-Output is `lada.exe` (GUI) + `lada-cli.exe` (CLI), bundled into a 7z archive. Useful flags:
+Output is `lada-rt.exe` (GUI) + `lada-rt-cli.exe` (CLI), bundled into a 7z archive. Useful flags:
 
 - `-cliOnly`: CLI only, skips the GTK build.
 - `-skipWinget` / `-skipGvsbuild`: skip when system deps / GTK are already built — saves time.
@@ -81,7 +81,7 @@ Output is `lada.exe` (GUI) + `lada-cli.exe` (CLI), bundled into a 7z archive. Us
 TRT engines are bound to a specific GPU architecture + TensorRT version and **cannot be distributed across machines**, so the archive contains **no** prebuilt engines — each end user compiles them on their own machine:
 
 - **GUI**: a first-run dialog guides the user — no Nvidia GPU → notice that the PyTorch path is used; single GPU → "Build now / Later"; multiple GPUs → pick which card (the chosen card is also the inference device). After "Build now" the dialog shows compile progress in-place (~10–15 min, not cancellable). Skipping re-prompts on the next launch until built once.
-- **CLI / install scripts**: run `lada-cli --build-trt-engines` once after install to prewarm, moving the compile to install time so the first playback/export doesn't block.
+- **CLI / install scripts**: run `lada-rt-cli.exe --build-trt-engines` once after install to prewarm, moving the compile to install time so the first playback/export doesn't block.
 
 Engines are cached under `model_weights/<model>_sub_engines/`, with the GPU architecture, TensorRT version, and precision encoded in the filename, so upgrading `torch-tensorrt` or swapping GPUs auto-invalidates and rebuilds them. Set `LADA_BASICVSRPP_TRT=0` to force the PyTorch path.
 

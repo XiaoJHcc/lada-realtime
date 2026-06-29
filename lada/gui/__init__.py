@@ -37,8 +37,24 @@ def prepare_windows_gui_environment():
     _update_env_var("LIB", [lib_dir])
     _update_env_var("INCLUDE", includes)
 
-if sys.platform == "win32" and not is_running_pyinstaller_bundle:
-    prepare_windows_gui_environment()
+def set_windows_app_user_model_id():
+    """Give the process its own taskbar identity instead of being grouped under python.exe.
+
+    Without an explicit AppUserModelID, Windows keys the taskbar button icon off the executable
+    (python.exe when running from source), so it shows the Python icon. Setting an AUMID detaches
+    the grouping; Windows then uses the window's own icon (set by GTK from the icon theme). The
+    frozen lada-rt.exe already embeds the icon, but this keeps a consistent identity there too.
+    """
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("io.github.XiaoJHcc.ladart")
+    except Exception:
+        pass
+
+if sys.platform == "win32":
+    set_windows_app_user_model_id()
+    if not is_running_pyinstaller_bundle:
+        prepare_windows_gui_environment()
 
 def prepare_macos_gui_environment() -> None:
     """Set up environment for GUI on macOS (e.g. XDG_DATA_DIRS for GSettings, etc.)."""

@@ -116,7 +116,7 @@ def get_gui_components(project_root_dir: str, common_datas: list, common_binarie
     ] + [
         (ospj(project_root_dir, 'lada/gui/style.css'), 'lada/gui'),
         (ospj(project_root_dir, 'lada/gui/resources.gresource'), 'lada/gui'),
-        (ospj(project_root_dir, 'assets/io.github.ladaapp.lada.png'), 'share/icons/hicolor/128x128/apps'),
+        (ospj(project_root_dir, 'assets/io.github.XiaoJHcc.ladart.png'), 'share/icons/hicolor/128x128/apps'),
     ]
 
     gtk_release_dir = pathlib.Path(project_root_dir) / "build_gtk_release" / "gtk" / "x64" / "release"
@@ -158,7 +158,7 @@ def get_gui_components(project_root_dir: str, common_datas: list, common_binarie
         gui_a.scripts,
         [],
         exclude_binaries=True,
-        name='lada',
+        name='lada-rt',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -191,7 +191,7 @@ def get_cli_components(project_root_dir: str, common_datas: list, common_binarie
         cli_a.scripts,
         [],
         exclude_binaries=True,
-        name='lada-cli',
+        name='lada-rt-cli',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -267,7 +267,7 @@ common_datas = get_common_datas(project_root)
 common_binaries = get_common_binaries(project_root)
 
 common_runtime_hooks = [ospj(project_root, "packaging/windows/pyinstaller_runtime_hook_lada.py")]
-common_icon = [ospj(project_root, 'assets/io.github.ladaapp.lada.png')]
+common_icon = [ospj(project_root, 'assets/io.github.XiaoJHcc.ladart.png')]
 
 # TensorRT is only present in the nvidia build; collect it once and share
 # between the CLI and GUI analyses. On intel/cpu these collect to empty lists.

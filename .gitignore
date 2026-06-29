@@ -36,3 +36,4 @@ mimo.exe
 
 # Realtime per-frame trace output (diagnostics scratch; regenerated via LADA_REALTIME_TRACE)
 /realtime_trace*/
+PSD

@@ -6,7 +6,7 @@ SPDX-License-Identifier: AGPL-3.0
 -->
 
 <gresources>
-    <gresource prefix="/io/github/ladaapp/lada/icons/scalable/actions">
+    <gresource prefix="/io/github/XiaoJHcc/ladart/icons/scalable/actions">
         <file preprocess="xml-stripblanks" alias="arrow-pointing-away-from-line-right-symbolic.svg">icons/arrow-pointing-away-from-line-right-symbolic.svg</file>
         <file preprocess="xml-stripblanks" alias="cafe-symbolic.svg">icons/cafe-symbolic.svg</file>
         <file preprocess="xml-stripblanks" alias="check-round-outline2-symbolic.svg">icons/check-round-outline2-symbolic.svg</file>
@@ -29,7 +29,11 @@ SPDX-License-Identifier: AGPL-3.0
         <file preprocess="xml-stripblanks" alias="subtitles-symbolic.svg">icons/subtitles-symbolic.svg</file>
         <file preprocess="xml-stripblanks" alias="subtitles-off-outline-symbolic.svg">icons/subtitles-off-outline-symbolic.svg</file>
     </gresource>
-    <gresource prefix="/io/github/ladaapp/lada/icons/128x128">
-        <file alias="lada-logo-gray.png">icons/lada-logo-gray.png</file>
+    <!-- App icon under the hicolor 'apps' layout. The app-id is io.github.XiaoJHcc.ladart, so
+         GtkApplication's auto-registered icon resource path (/io/github/XiaoJHcc/ladart/icons)
+         resolves it by name for the About dialog. It is also loaded directly as the file-selection
+         landing logo. Single source of truth: assets/io.github.XiaoJHcc.ladart.png. -->
+    <gresource prefix="/io/github/XiaoJHcc/ladart/icons/128x128/apps">
+        <file alias="io.github.XiaoJHcc.ladart.png">../../assets/io.github.XiaoJHcc.ladart.png</file>
     </gresource>
 </gresources>

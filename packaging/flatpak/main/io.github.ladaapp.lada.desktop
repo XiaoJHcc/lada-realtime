@@ -2,8 +2,8 @@
 Version=1.0
 Type=Application
 
-Name=Lada
-Comment=Remove and recover pixelated areas in adult videos
+Name=Lada Realtime
+Comment=Real-time mosaic removal during playback. A fork of Lada.
 Categories=AudioVideo;Adult;
 
 Icon=io.github.ladaapp.lada

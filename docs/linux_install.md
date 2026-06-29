@@ -29,8 +29,8 @@ This section provides instructions for installing the app (CLI and GUI) from sou
 
 2) Get the source code
    ```bash
-   git clone https://codeberg.org/ladaapp/lada.git
-   cd lada
+   git clone https://github.com/XiaoJHcc/lada-realtime.git
+   cd lada-realtime
    ```
 
 3) Create a virtual environment to install python dependencies

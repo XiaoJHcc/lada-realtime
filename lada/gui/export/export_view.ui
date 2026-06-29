@@ -141,7 +141,7 @@ SPDX-License-Identifier: AGPL-3.0
                 <attribute name="action">app.shortcuts</attribute>
             </item>
             <item>
-                <attribute name="label" translatable="true">About Lada</attribute>
+                <attribute name="label" translatable="true">About Lada Realtime</attribute>
                 <attribute name="action">app.about</attribute>
             </item>
         </section>

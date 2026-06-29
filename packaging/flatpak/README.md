@@ -1,3 +1,11 @@
+> [!WARNING]
+> **Fork note (Lada Realtime):** the flatpak path is NOT yet migrated to this fork's namespace and
+> currently **will fail to build**. The app icon asset was renamed to `assets/io.github.XiaoJHcc.ladart.png`,
+> but the manifests/desktop/metainfo below still reference the upstream `io.github.ladaapp.lada` namespace
+> and the old icon filename. Migrating flatpak (manifest filenames, `<id>`, desktop `Icon=`, metainfo,
+> yaml install, icon name — all must match the new app-id `io.github.XiaoJHcc.ladart`) is deferred until
+> we actually ship a Linux flatpak. Windows packaging, source runs, and the CLI are unaffected.
+
 > [!NOTE]
 > The manifest `io.github.ladaapp.lada.yaml` in this directory is used only for building the flatpak locally.
 > 

@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0
 
 [project]
-name = "lada"
-description = "Remove and recover pixelated areas in adult videos"
+name = "lada-rt"
+description = "Real-time mosaic removal during playback. A fork of Lada."
 dynamic = ["version"]
 requires-python = ">=3.12.0"
 license = "AGPL-3.0"
@@ -23,11 +23,12 @@ dependencies = [
 ]
 
 [project.urls]
-homepage = "https://codeberg.org/ladaapp/lada"
-source = "https://codeberg.org/ladaapp/lada"
-documentation = "https://codeberg.org/ladaapp/lada/blob/main/README.md"
-issues = "https://codeberg.org/ladaapp/lada/issues"
-changelog = "https://codeberg.org/ladaapp/lada/releases"
+homepage = "https://github.com/XiaoJHcc/lada-realtime"
+source = "https://github.com/XiaoJHcc/lada-realtime"
+documentation = "https://github.com/XiaoJHcc/lada-realtime/blob/main/README.md"
+issues = "https://github.com/XiaoJHcc/lada-realtime/issues"
+changelog = "https://github.com/XiaoJHcc/lada-realtime/releases"
+upstream = "https://codeberg.org/ladaapp/lada"
 
 [build-system]
 requires = ["setuptools>=77.0.3"]

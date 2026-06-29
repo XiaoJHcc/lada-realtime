@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="assets/io.github.ladaapp.lada.png" alt="Lada Icon" style="display: block; width: 64px; height: 64px;">
+  <img src="assets/io.github.XiaoJHcc.ladart.png" alt="Lada Realtime Icon" style="display: block; width: 64px; height: 64px;">
   <br>
   Lada Realtime
 </h1>
@@ -66,7 +66,7 @@ cd lada-realtime
 .\packaging\windows\package_executable.ps1 -extra nvidia
 ```
 
-产物为 `lada.exe`（GUI）+ `lada-cli.exe`（命令行），打进 7z 分发包。常用参数：
+产物为 `lada-rt.exe`（GUI）+ `lada-rt-cli.exe`（命令行），打进 7z 分发包。常用参数：
 
 - `-cliOnly`：只打命令行版，跳过 GTK 编译。
 - `-skipWinget` / `-skipGvsbuild`：已装过系统依赖 / 已编过 GTK 时跳过，省时间。
@@ -81,7 +81,7 @@ cd lada-realtime
 TRT 引擎绑定具体 GPU 架构 + TensorRT 版本，**不能跨机分发**，所以分发包里**不含**编好的引擎，由终端用户在自己机器上首次编译：
 
 - **GUI**：首次启动会弹窗引导——无 Nvidia 卡则提示走 PyTorch；单卡提示「立即构建 / 以后再说」；多卡可选用哪块卡（选定的卡同时作为推理设备）。点构建后弹窗内显示编译进度（约十几分钟，不可取消）。跳过则下次启动再提示，直到编译过一次。
-- **命令行 / 安装脚本**：装好后运行一次 `lada-cli --build-trt-engines` 预热，把编译挪到安装阶段，避免首次播放/导出时卡住。
+- **命令行 / 安装脚本**：装好后运行一次 `lada-rt-cli.exe --build-trt-engines` 预热,把编译挪到安装阶段,避免首次播放/导出时卡住。
 
 引擎编好后缓存在 `model_weights/<模型名>_sub_engines/`，文件名编入了 GPU 架构、TensorRT 版本、精度等，升级 `torch-tensorrt` 或换显卡会自动失活重编。可用环境变量 `LADA_BASICVSRPP_TRT=0` 强制关闭 TRT、只走 PyTorch。
 
