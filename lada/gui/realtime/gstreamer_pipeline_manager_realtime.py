@@ -59,6 +59,16 @@ class RealtimePipelineManager(PipelineManager):
         paintable: Gdk.Paintable = gtksink.get_property('paintable')
         # TODO: workaround for #62 (same as watch path): on Windows + Nvidia, OpenGL paintable
         #  causes messed up colors, so don't use glsinkbin there.
+        # The GL path is blocked on Windows+Nvidia and NOT fixable from app code (spiked
+        # 2026-06-29, GStreamer 1.26.10 + gtk4 0.14.3): forcing glsinkbin fails in gst-gl's
+        # glupload with "failed to share contexts through wglShareLists 0xaa" (ERROR_BUSY=170) --
+        # glupload creates its own WGL context and wglShareLists() against GTK's WGL context while
+        # it's current on GTK's render thread. No GST_GL_PLATFORM/WINDOW/API combo avoids it
+        # (all return the same ERROR_BUSY), and it's already on current GStreamer, so it's a
+        # gst-gl Windows bug, not a stale-version issue. This is the same wall upstream hit (#62).
+        # => software (videoconvert) path is the only working option on win32; its per-frame
+        # full-area redraw makes present cost grow with displayed area (4K maximized = ~4x pixels
+        # -> more vblank misses: %frames>43ms ~1% windowed vs ~5% maximized).
         if paintable.props.gl_context and sys.platform != 'win32':
             video_sink = Gst.ElementFactory.make('glsinkbin', None)
             video_sink.set_property('sink', gtksink)

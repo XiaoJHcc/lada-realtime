@@ -92,10 +92,17 @@ class LadaApplication(Adw.Application):
           LADA_AUTOPLAY=<path>   open the file via the normal on_files_selected path, which
                                  auto-plays on the configured initial_view (realtime by default)
           LADA_AUTOQUIT_SEC=<N>  quit after N seconds (clean trace dump on window close)
+          LADA_AUTOMAXIMIZE=1    maximize the window before opening (measure maximized cost)
         """
         path = os.environ.get("LADA_AUTOPLAY")
         if not path:
             return
+
+        if os.environ.get("LADA_AUTOMAXIMIZE", "").strip() not in ("", "0", "false", "no", "off"):
+            try:
+                win.maximize()
+            except Exception as e:
+                logger.error(f"LADA_AUTOMAXIMIZE failed: {e}")
 
         def _open():
             try:
